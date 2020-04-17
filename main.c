@@ -3,7 +3,7 @@
 extern char **environ;
 
 /*
-    Implementar o dissasembler usando capstone
+    Implementar o dissasembler usando capstone -> ler section .text
     Implementar a stack
     Implementar checksec básico (NX, PIE, RERLO, Canary, Fortify)
     Paralelizar se possível com pthreads
@@ -63,7 +63,7 @@ int main(int argc, char **argv)
     bool first_time = true;
     struct breakpoint_t *file_symbols;
     char previous[COMMAND_SIZE];
-
+    
     if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
     {
         fprintf(stderr, "%s isn't an elf...\n", path);
@@ -81,7 +81,6 @@ int main(int argc, char **argv)
     }
 
     elf_type = check_type(elf_headers);
-
     file_symbols = extract_symbols(elf_headers, content, &symtab_size);
     munmap_wrapper(content, length);
 
@@ -115,14 +114,11 @@ int main(int argc, char **argv)
         }
 
         free_wrapper(args);
-
         return 0;
     }
 
     free_wrapper(args);
-
     memset(&breakpoints, 0, sizeof(struct breakpoint_t) * MAX_BREAKPOINTS);
-
     printf("[\x1B[96m%ld\x1B[0m] Init session....\n", (long)pid);
 
     for (;;)
@@ -154,7 +150,8 @@ int main(int argc, char **argv)
         }
 
         format_print(&regs, &saved, registers);
-
+        disassembly_view(pid, &regs, file_symbols);
+        
         if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP)
         {
             if (resume_execution(pid, &regs, breakpoints, file_symbols))
@@ -182,7 +179,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        if (*buffer != '\n')
+        if (*buffer != '\n' && strncmp(previous, buffer, sizeof(buffer)) != 0)
             memmove(previous, buffer, sizeof(buffer));
 
     select_command:
@@ -203,6 +200,7 @@ int main(int argc, char **argv)
                     perror("ptrace CONT error: ");
                     return 1;
                 }
+
                 break;
             }
             case 'q':
@@ -421,8 +419,8 @@ int main(int argc, char **argv)
                     strncpy(buffer, previous, strlen(previous));
                     goto select_command;
                 }
-                else
-                    puts("\x1B[01;93mHint\x1B[0m: type man");
+
+                puts("\x1B[01;93mHint\x1B[0m: type man");
             }
             goto prompt_label;
         }

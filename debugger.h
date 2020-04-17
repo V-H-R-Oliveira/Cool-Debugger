@@ -34,12 +34,15 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <inttypes.h>
+#include <capstone/capstone.h>
 
 #define COMMAND_SIZE 100
 #define MAX_BREAKPOINTS 500
 #define USER_REGS_STRUCT_NO 27
 #define PROCS_LENGTH 20
 #define CURRENT_PERSONA 0xffffffff
+#define OPCODES 7
 
 struct breakpoint_t
 {
@@ -78,6 +81,7 @@ void sep_tokens(char *, char **);
 
 // display process registers stuff
 void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **);
+void disassembly_view(pid_t, struct user_regs_struct *, struct breakpoint_t *);
 
 // breakpoints stuff
 long set_breakpoint(pid_t, long, struct breakpoint_t *);

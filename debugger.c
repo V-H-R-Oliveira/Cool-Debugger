@@ -61,9 +61,9 @@ char **extract_cmdline_args(int argc, char **argv)
 
     for (int i = 2; i < argc; ++i)
     {
-        args[i-1] = strdup(argv[i]);
-        
-        if (!(args[i-1]))
+        args[i - 1] = strdup(argv[i]);
+
+        if (!(args[i - 1]))
         {
             free(args);
             perror("strdup error: ");
@@ -71,7 +71,7 @@ char **extract_cmdline_args(int argc, char **argv)
         }
     }
 
-    args[argc-1] = NULL;
+    args[argc - 1] = NULL;
     return args;
 }
 
@@ -329,18 +329,7 @@ void sep_tokens(char *tokens, char **args)
 
 void patch_regs(pid_t pid, struct user_regs_struct *old_registers, struct breakpoint_t *file_symbols)
 {
-    struct user_regs_struct tmp_regs;
-
-    if (ptrace(PTRACE_GETREGS, pid, NULL, &tmp_regs) == -1)
-    {
-        free_wrapper(file_symbols);
-        perror("ptrace GETREGS error: ");
-        exit(EXIT_FAILURE);
-    }
-
-    tmp_regs = *old_registers;
-
-    if (ptrace(PTRACE_SETREGS, pid, NULL, &tmp_regs) == -1)
+    if (ptrace(PTRACE_SETREGS, pid, NULL, old_registers) == -1)
     {
         free_wrapper(file_symbols);
         perror("ptrace SETREGS error: ");
@@ -425,7 +414,7 @@ bool resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     if (ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL) == -1)
     {
         free_wrapper(file_symbols);
-        perror("ptrace CONT error: ");
+        perror("ptrace SINGLESTEP error: ");
         exit(EXIT_FAILURE);
     }
 
@@ -465,11 +454,55 @@ void modify_regs(unsigned long long *regs_cpy, struct user_regs_struct *new_regs
 void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *saved, const char **registers)
 {
     puts("\n\x1B[01;93mRegisters:\x1B[0m");
-    printf("RAX: 0x%llx\nRBX: 0x%llx\nRCX: 0x%llx\nRDX: 0x%llx\nRSP: 0x%llx\nRBP: 0x%llx\nRSI: 0x%llx\nRDI: 0x%llx\nR8:  0x%llx\nR9:  0x%llx\nR10: 0x%llx\nR11: 0x%llx\nR12: 0x%llx\nR13: 0x%llx\nR14: 0x%llx\nR15: 0x%llx\n",
-           new_regs->rax, new_regs->rbx, new_regs->rcx, new_regs->rdx, new_regs->rsp,
-           new_regs->rbp, new_regs->rsi, new_regs->rdi, new_regs->r8,
-           new_regs->r9, new_regs->r10, new_regs->r11, new_regs->r12, new_regs->r13,
-           new_regs->r14, new_regs->r15);
+    printf(
+    "\n"
+    "|RAX: 0x%012llx | EAX: 0x%08x  | AX:  0x%04x  | AL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RBX: 0x%012llx | EBX: 0x%08x  | BX:  0x%04x  | BL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RCX: 0x%012llx | ECX: 0x%08x  | CX:  0x%04x  | CL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RDX: 0x%012llx | EDX: 0x%08x  | DX:  0x%04x  | DL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RSP: 0x%012llx | ESP: 0x%08x  | SP:  0x%04x  | SPL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RBP: 0x%012llx | EBP: 0x%08x  | BP:  0x%04x  | BPL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RSI: 0x%012llx | ESI: 0x%08x  | SI:   0x%04x | SIL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|RDI: 0x%012llx | EDI: 0x%08x  | DI:   0x%04x | DIL: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R8:  0x%012llx | R8D: 0x%08x  | R8W:  0x%04x | R8B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R9:  0x%012llx | R9D: 0x%08x  | R9W:  0x%04x | R9B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R10: 0x%012llx | R10D: 0x%08x | R10W: 0x%04x | R10B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R11: 0x%012llx | R11D: 0x%08x | R11W: 0x%04x | R11B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R12: 0x%012llx | R12D: 0x%08x | R12W: 0x%04x | R12B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R13: 0x%012llx | R13D: 0x%08x | R13W: 0x%04x | R13B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R14: 0x%012llx | R14D: 0x%08x | R14W: 0x%04x | R14B: 0x%02x\n"
+    "-----------------------------------------------------------------\n"
+    "|R15: 0x%012llx | R15D: 0x%08x | R15W: 0x%04x | R15B: 0x%02x\n",
+           new_regs->rax, (uint32_t)new_regs->rax, (uint16_t)new_regs->rax, (uint8_t)new_regs->rax, 
+           new_regs->rbx, (uint32_t)new_regs->rbx, (uint16_t)new_regs->rbx, (uint8_t)new_regs->rbx, 
+           new_regs->rcx, (uint32_t)new_regs->rcx, (uint16_t)new_regs->rcx, (uint8_t)new_regs->rcx,
+           new_regs->rdx, (uint32_t)new_regs->rdx, (uint16_t)new_regs->rdx, (uint8_t)new_regs->rdx,
+           new_regs->rsp, (uint32_t)new_regs->rsp, (uint16_t)new_regs->rsp, (uint8_t)new_regs->rsp,
+           new_regs->rbp, (uint32_t)new_regs->rbp, (uint16_t)new_regs->rbp, (uint8_t)new_regs->rbp,
+           new_regs->rsi, (uint32_t)new_regs->rsi, (uint16_t)new_regs->rsi, (uint8_t)new_regs->rsi,
+           new_regs->rdi, (uint32_t)new_regs->rdi, (uint16_t)new_regs->rdi, (uint8_t)new_regs->rdi,
+           new_regs->r8, (uint32_t)new_regs->r8, (uint16_t)new_regs->r8, (uint8_t)new_regs->r8,
+           new_regs->r9, (uint32_t)new_regs->r9, (uint16_t)new_regs->r9, (uint8_t)new_regs->r9,
+           new_regs->r10, (uint32_t)new_regs->r10, (uint16_t)new_regs->r10, (uint8_t)new_regs->r10,
+           new_regs->r11, (uint32_t)new_regs->r11, (uint16_t)new_regs->r11, (uint8_t)new_regs->r11,
+           new_regs->r12, (uint32_t)new_regs->r12, (uint16_t)new_regs->r12, (uint8_t)new_regs->r12,
+           new_regs->r13, (uint32_t)new_regs->r13, (uint16_t)new_regs->r13, (uint8_t)new_regs->r13,
+           new_regs->r14, (uint32_t)new_regs->r14, (uint16_t)new_regs->r14, (uint8_t)new_regs->r14,
+           new_regs->r15, (uint32_t)new_regs->r15, (uint16_t)new_regs->r15, (uint8_t)new_regs->r15);
 
     unsigned long long *ptr = &saved->r15;
     unsigned long long *ptr2 = &new_regs->r15;
@@ -485,4 +518,64 @@ void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *sa
     }
 
     putc(0xa, stdout);
+}
+
+void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols)
+{
+    csh handle;
+    cs_insn *insn;
+    size_t count = 0;
+    uint8_t bytes[OPCODES] = {'\0'};
+    long opcodes = 0;
+    
+    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
+    {
+        free_wrapper(file_symbols);
+        return;
+    }
+
+    opcodes = ptrace(PTRACE_PEEKTEXT, pid, regs->rip, NULL);
+
+    if (opcodes == -1)
+    {
+        free_wrapper(file_symbols);
+        perror("ptrace PEEKTEXT error: ");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Opcodes: 0x%lx\n", opcodes);
+
+    bytes[0] = opcodes & 0xff;
+    bytes[1] = (opcodes >> 8) & 0xff;
+    bytes[2] = (opcodes >> 16) & 0xff;
+    bytes[3] = (opcodes >> 24) & 0xff;
+    bytes[4] = (opcodes >> 32) & 0xff;
+
+    if ((opcodes >> 32) != 0)
+    {
+        opcodes >>= 32;
+        bytes[5] = (opcodes >> 8) & 0xff;
+        bytes[6] = (opcodes >> 16) & 0xff;
+    }
+
+    for (uint8_t i = 0; i < OPCODES; ++i)
+        printf("%d -> 0x%02x\n", i, bytes[i]);
+
+    count = cs_disasm(handle, bytes, sizeof(bytes), regs->rip, 0, &insn);
+
+    if (count > 0)
+    {
+        puts("\x1B[01;93mDisassembly view:\x1B[0m\n");
+
+        for (size_t j = 0; j < count; j++)
+            printf("\x1B[96m0x%" PRIx64 ":\x1B[0m\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic,
+                   insn[j].op_str);
+
+        putc(0xa, stdout);
+        cs_free(insn, count);
+    }
+    else
+        puts("\x1B[31mERROR\x1B[0m: Failed to disassemble given code!");
+
+    cs_close(&handle);
 }
