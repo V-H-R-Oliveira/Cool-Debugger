@@ -63,7 +63,7 @@ int main(int argc, char **argv)
     bool first_time = true;
     struct breakpoint_t *file_symbols;
     char previous[COMMAND_SIZE];
-    
+
     if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
     {
         fprintf(stderr, "%s isn't an elf...\n", path);
@@ -119,6 +119,7 @@ int main(int argc, char **argv)
 
     free_wrapper(args);
     memset(&breakpoints, 0, sizeof(struct breakpoint_t) * MAX_BREAKPOINTS);
+
     printf("[\x1B[96m%ld\x1B[0m] Init session....\n", (long)pid);
 
     for (;;)
@@ -150,24 +151,14 @@ int main(int argc, char **argv)
         }
 
         format_print(&regs, &saved, registers);
-        disassembly_view(pid, &regs, file_symbols);
-        
+
         if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP)
-        {
-            if (resume_execution(pid, &regs, breakpoints, file_symbols))
-                goto prompt_label;
-        }
+            resume_execution(pid, &regs, breakpoints, file_symbols);
 
         copy_registers(reg_cpy, &regs);
         saved = regs;
-
-        if (ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL) == -1)
-        {
-            free_wrapper(file_symbols);
-            perror("ptrace SINGLESTEP error: ");
-            return 1;
-        }
-
+        disassembly_view(pid, &regs, file_symbols);
+        
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
         fflush(NULL);
@@ -189,6 +180,12 @@ int main(int argc, char **argv)
             {
             case 's':
             {
+                if (ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL) == -1)
+                {
+                    free_wrapper(file_symbols);
+                    perror("ptrace SINGLESTEP error: ");
+                    return 1;
+                }
                 continue;
                 break;
             }

@@ -379,7 +379,7 @@ void store_breakpoint(struct breakpoint_t *breakpoint_list, long breakpoint, lon
     }
 }
 
-bool resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *breakpoins_list, struct breakpoint_t *file_symbols)
+void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *breakpoins_list, struct breakpoint_t *file_symbols)
 {
     struct breakpoint_t tmp;
     short which = 0;
@@ -397,7 +397,7 @@ bool resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     }
 
     if ((tmp.addr == 0 && tmp.breakpoint == 0) || tmp.hit > 0)
-        return false;
+        return;
 
     printf("[\x1B[96mBREAKPOINT\x1B[0m] Breakpoint \x1B[01;91m(%d)\x1B[0m hit at \x1B[01;90m0x%lx\x1B[0m\n", which, tmp.addr);
 
@@ -410,15 +410,6 @@ bool resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoin
 
     regs->rip = tmp.addr;
     patch_regs(pid, regs, file_symbols);
-
-    if (ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL) == -1)
-    {
-        free_wrapper(file_symbols);
-        perror("ptrace SINGLESTEP error: ");
-        exit(EXIT_FAILURE);
-    }
-
-    return true;
 }
 
 void display_breakpoints(struct breakpoint_t *breakpoint_list)
@@ -455,54 +446,54 @@ void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *sa
 {
     puts("\n\x1B[01;93mRegisters:\x1B[0m");
     printf(
-    "\n"
-    "|RAX: 0x%012llx | EAX: 0x%08x  | AX:  0x%04x  | AL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RBX: 0x%012llx | EBX: 0x%08x  | BX:  0x%04x  | BL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RCX: 0x%012llx | ECX: 0x%08x  | CX:  0x%04x  | CL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RDX: 0x%012llx | EDX: 0x%08x  | DX:  0x%04x  | DL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RSP: 0x%012llx | ESP: 0x%08x  | SP:  0x%04x  | SPL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RBP: 0x%012llx | EBP: 0x%08x  | BP:  0x%04x  | BPL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RSI: 0x%012llx | ESI: 0x%08x  | SI:   0x%04x | SIL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|RDI: 0x%012llx | EDI: 0x%08x  | DI:   0x%04x | DIL: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R8:  0x%012llx | R8D: 0x%08x  | R8W:  0x%04x | R8B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R9:  0x%012llx | R9D: 0x%08x  | R9W:  0x%04x | R9B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R10: 0x%012llx | R10D: 0x%08x | R10W: 0x%04x | R10B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R11: 0x%012llx | R11D: 0x%08x | R11W: 0x%04x | R11B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R12: 0x%012llx | R12D: 0x%08x | R12W: 0x%04x | R12B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R13: 0x%012llx | R13D: 0x%08x | R13W: 0x%04x | R13B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R14: 0x%012llx | R14D: 0x%08x | R14W: 0x%04x | R14B: 0x%02x\n"
-    "-----------------------------------------------------------------\n"
-    "|R15: 0x%012llx | R15D: 0x%08x | R15W: 0x%04x | R15B: 0x%02x\n",
-           new_regs->rax, (uint32_t)new_regs->rax, (uint16_t)new_regs->rax, (uint8_t)new_regs->rax, 
-           new_regs->rbx, (uint32_t)new_regs->rbx, (uint16_t)new_regs->rbx, (uint8_t)new_regs->rbx, 
-           new_regs->rcx, (uint32_t)new_regs->rcx, (uint16_t)new_regs->rcx, (uint8_t)new_regs->rcx,
-           new_regs->rdx, (uint32_t)new_regs->rdx, (uint16_t)new_regs->rdx, (uint8_t)new_regs->rdx,
-           new_regs->rsp, (uint32_t)new_regs->rsp, (uint16_t)new_regs->rsp, (uint8_t)new_regs->rsp,
-           new_regs->rbp, (uint32_t)new_regs->rbp, (uint16_t)new_regs->rbp, (uint8_t)new_regs->rbp,
-           new_regs->rsi, (uint32_t)new_regs->rsi, (uint16_t)new_regs->rsi, (uint8_t)new_regs->rsi,
-           new_regs->rdi, (uint32_t)new_regs->rdi, (uint16_t)new_regs->rdi, (uint8_t)new_regs->rdi,
-           new_regs->r8, (uint32_t)new_regs->r8, (uint16_t)new_regs->r8, (uint8_t)new_regs->r8,
-           new_regs->r9, (uint32_t)new_regs->r9, (uint16_t)new_regs->r9, (uint8_t)new_regs->r9,
-           new_regs->r10, (uint32_t)new_regs->r10, (uint16_t)new_regs->r10, (uint8_t)new_regs->r10,
-           new_regs->r11, (uint32_t)new_regs->r11, (uint16_t)new_regs->r11, (uint8_t)new_regs->r11,
-           new_regs->r12, (uint32_t)new_regs->r12, (uint16_t)new_regs->r12, (uint8_t)new_regs->r12,
-           new_regs->r13, (uint32_t)new_regs->r13, (uint16_t)new_regs->r13, (uint8_t)new_regs->r13,
-           new_regs->r14, (uint32_t)new_regs->r14, (uint16_t)new_regs->r14, (uint8_t)new_regs->r14,
-           new_regs->r15, (uint32_t)new_regs->r15, (uint16_t)new_regs->r15, (uint8_t)new_regs->r15);
+        "\n"
+        "|RAX: 0x%012llx | EAX: 0x%08x  | AX:  0x%04x  | AL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RBX: 0x%012llx | EBX: 0x%08x  | BX:  0x%04x  | BL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RCX: 0x%012llx | ECX: 0x%08x  | CX:  0x%04x  | CL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RDX: 0x%012llx | EDX: 0x%08x  | DX:  0x%04x  | DL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RSP: 0x%012llx | ESP: 0x%08x  | SP:  0x%04x  | SPL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RBP: 0x%012llx | EBP: 0x%08x  | BP:  0x%04x  | BPL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RSI: 0x%012llx | ESI: 0x%08x  | SI:   0x%04x | SIL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|RDI: 0x%012llx | EDI: 0x%08x  | DI:   0x%04x | DIL: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R8:  0x%012llx | R8D: 0x%08x  | R8W:  0x%04x | R8B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R9:  0x%012llx | R9D: 0x%08x  | R9W:  0x%04x | R9B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R10: 0x%012llx | R10D: 0x%08x | R10W: 0x%04x | R10B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R11: 0x%012llx | R11D: 0x%08x | R11W: 0x%04x | R11B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R12: 0x%012llx | R12D: 0x%08x | R12W: 0x%04x | R12B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R13: 0x%012llx | R13D: 0x%08x | R13W: 0x%04x | R13B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R14: 0x%012llx | R14D: 0x%08x | R14W: 0x%04x | R14B: 0x%02x\n"
+        "-----------------------------------------------------------------\n"
+        "|R15: 0x%012llx | R15D: 0x%08x | R15W: 0x%04x | R15B: 0x%02x\n",
+        new_regs->rax, (uint32_t)new_regs->rax, (uint16_t)new_regs->rax, (uint8_t)new_regs->rax,
+        new_regs->rbx, (uint32_t)new_regs->rbx, (uint16_t)new_regs->rbx, (uint8_t)new_regs->rbx,
+        new_regs->rcx, (uint32_t)new_regs->rcx, (uint16_t)new_regs->rcx, (uint8_t)new_regs->rcx,
+        new_regs->rdx, (uint32_t)new_regs->rdx, (uint16_t)new_regs->rdx, (uint8_t)new_regs->rdx,
+        new_regs->rsp, (uint32_t)new_regs->rsp, (uint16_t)new_regs->rsp, (uint8_t)new_regs->rsp,
+        new_regs->rbp, (uint32_t)new_regs->rbp, (uint16_t)new_regs->rbp, (uint8_t)new_regs->rbp,
+        new_regs->rsi, (uint32_t)new_regs->rsi, (uint16_t)new_regs->rsi, (uint8_t)new_regs->rsi,
+        new_regs->rdi, (uint32_t)new_regs->rdi, (uint16_t)new_regs->rdi, (uint8_t)new_regs->rdi,
+        new_regs->r8, (uint32_t)new_regs->r8, (uint16_t)new_regs->r8, (uint8_t)new_regs->r8,
+        new_regs->r9, (uint32_t)new_regs->r9, (uint16_t)new_regs->r9, (uint8_t)new_regs->r9,
+        new_regs->r10, (uint32_t)new_regs->r10, (uint16_t)new_regs->r10, (uint8_t)new_regs->r10,
+        new_regs->r11, (uint32_t)new_regs->r11, (uint16_t)new_regs->r11, (uint8_t)new_regs->r11,
+        new_regs->r12, (uint32_t)new_regs->r12, (uint16_t)new_regs->r12, (uint8_t)new_regs->r12,
+        new_regs->r13, (uint32_t)new_regs->r13, (uint16_t)new_regs->r13, (uint8_t)new_regs->r13,
+        new_regs->r14, (uint32_t)new_regs->r14, (uint16_t)new_regs->r14, (uint8_t)new_regs->r14,
+        new_regs->r15, (uint32_t)new_regs->r15, (uint16_t)new_regs->r15, (uint8_t)new_regs->r15);
 
     unsigned long long *ptr = &saved->r15;
     unsigned long long *ptr2 = &new_regs->r15;
@@ -527,7 +518,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     size_t count = 0;
     uint8_t bytes[OPCODES] = {'\0'};
     long opcodes = 0;
-    
+
     if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
     {
         free_wrapper(file_symbols);
@@ -556,6 +547,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
         opcodes >>= 32;
         bytes[5] = (opcodes >> 8) & 0xff;
         bytes[6] = (opcodes >> 16) & 0xff;
+        bytes[7] = (opcodes >> 24) & 0xff;
     }
 
     for (uint8_t i = 0; i < OPCODES; ++i)

@@ -42,7 +42,7 @@
 #define USER_REGS_STRUCT_NO 27
 #define PROCS_LENGTH 20
 #define CURRENT_PERSONA 0xffffffff
-#define OPCODES 7
+#define OPCODES 8
 
 struct breakpoint_t
 {
@@ -82,11 +82,11 @@ void sep_tokens(char *, char **);
 // display process registers stuff
 void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **);
 void disassembly_view(pid_t, struct user_regs_struct *, struct breakpoint_t *);
-
+  
 // breakpoints stuff
 long set_breakpoint(pid_t, long, struct breakpoint_t *);
 void store_breakpoint(struct breakpoint_t *, long, long);
-bool resume_execution(pid_t, struct user_regs_struct *, struct breakpoint_t *, struct breakpoint_t *);
+void resume_execution(pid_t, struct user_regs_struct *, struct breakpoint_t *, struct breakpoint_t *);
 
 // info
 void display_simbols(long, struct breakpoint_t *);
