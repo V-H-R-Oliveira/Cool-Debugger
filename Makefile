@@ -8,7 +8,7 @@ TEST = test.c
 DEMO = $(wildcard test-*)
 
 all: release
-release: $(OBJ)
+release: $(OBJ) 
 	@echo "Compiling release version"
 	$(CC) $(CFLAGS) -s -o $(EXEC) $(OBJ)
 	@echo "Done"

@@ -18,7 +18,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "Usage %s <file> <cmdline args>\n", *argv);
         return 1;
     }
-  
+
     char buffer[COMMAND_SIZE] = {'\0'};
     unsigned long long reg_cpy[USER_REGS_STRUCT_NO] = {0};
     const char *registers[] = {
@@ -60,8 +60,9 @@ int main(int argc, char **argv)
     struct breakpoint_t breakpoints[MAX_BREAKPOINTS];
     Elf64_Ehdr *elf_headers;
     short elf_type = 0;
-    bool first_time = true; // gambiarra, famosa sentinela
+    bool first_time = true;
     struct breakpoint_t *file_symbols;
+    char previous[COMMAND_SIZE];
 
     if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
     {
@@ -181,13 +182,19 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        if (*buffer != '\n')
+            memmove(previous, buffer, sizeof(buffer));
+
+    select_command:
         if ((strlen(buffer) - 1) == 1)
         {
             switch (*buffer)
             {
             case 's':
+            {
                 continue;
                 break;
+            }
             case 'c':
             {
                 if (ptrace(PTRACE_CONT, pid, NULL, NULL) == -1)
@@ -407,7 +414,16 @@ int main(int argc, char **argv)
                 }
             }
             else
-                puts("Command not found...");
+            {
+                if (*buffer == '\n' && *previous != '\0')
+                {
+                    printf("[\x1B[01;93mINFO\x1B[0m] Executing the previous instruction: %s\n", previous);
+                    strncpy(buffer, previous, strlen(previous));
+                    goto select_command;
+                }
+                else
+                    puts("\x1B[01;93mHint\x1B[0m: type man");
+            }
             goto prompt_label;
         }
     }

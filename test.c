@@ -18,13 +18,13 @@ int op(int a, int b)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2)
-    {
-        fprintf(stderr, "Usage %s <argv>\n", *argv);
-        return 1;
-    }
+    // if (argc != 2)
+    // {
+        // fprintf(stderr, "Usage %s <argv>\n", *argv);
+        // return 1;
+    // }
 
-    printf("Your arg is: %s\n", argv[1]);
+    // printf("Your arg is: %s\n", argv[1]);
     puts("I'm the test");
     int soma = 0;
 
