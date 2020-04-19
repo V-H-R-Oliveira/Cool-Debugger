@@ -1,4 +1,5 @@
 #include "debugger.h"
+#include "syscalls_names.h"
 
 void menu(void)
 {
@@ -399,7 +400,7 @@ void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     if ((tmp.addr == 0 && tmp.breakpoint == 0) || tmp.hit > 0)
         return;
 
-    printf("[\x1B[96mBREAKPOINT\x1B[0m] Breakpoint \x1B[01;91m(%d)\x1B[0m hit at \x1B[01;90m0x%lx\x1B[0m\n", which, tmp.addr);
+    printf("[\x1B[96mBREAKPOINT\x1B[0m] Breakpoint \x1B[01;91m(%d)\x1B[0m hit at \x1B[01;90m0x%lx\x1B[0m\n\n", which, tmp.addr);
 
     if (ptrace(PTRACE_POKETEXT, pid, (void *)tmp.addr, tmp.breakpoint) == -1)
     {
@@ -511,6 +512,19 @@ void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *sa
     putc(0xa, stdout);
 }
 
+void extract_bytes(uint8_t *bytes, long data)
+{
+    bytes[0] = (uint8_t)data;
+    bytes[1] = (uint8_t)(data >> 8);
+    bytes[2] = (uint8_t)(data >> 16);
+    bytes[3] = (uint8_t)(data >> 24);
+    bytes[4] = (uint8_t)(data >> 32);
+    data >>= 32;
+    bytes[5] = (uint8_t)(data >> 8);
+    bytes[6] = (uint8_t)(data >> 16);
+    bytes[7] = (uint8_t)(data >> 24);
+}
+
 void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols)
 {
     csh handle;
@@ -534,25 +548,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
         exit(EXIT_FAILURE);
     }
 
-    printf("Opcodes: 0x%lx\n", opcodes);
-
-    bytes[0] = opcodes & 0xff;
-    bytes[1] = (opcodes >> 8) & 0xff;
-    bytes[2] = (opcodes >> 16) & 0xff;
-    bytes[3] = (opcodes >> 24) & 0xff;
-    bytes[4] = (opcodes >> 32) & 0xff;
-
-    if ((opcodes >> 32) != 0)
-    {
-        opcodes >>= 32;
-        bytes[5] = (opcodes >> 8) & 0xff;
-        bytes[6] = (opcodes >> 16) & 0xff;
-        bytes[7] = (opcodes >> 24) & 0xff;
-    }
-
-    for (uint8_t i = 0; i < OPCODES; ++i)
-        printf("%d -> 0x%02x\n", i, bytes[i]);
-
+    extract_bytes(bytes, opcodes);
     count = cs_disasm(handle, bytes, sizeof(bytes), regs->rip, 0, &insn);
 
     if (count > 0)
@@ -570,4 +566,111 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
         puts("\x1B[31mERROR\x1B[0m: Failed to disassemble given code!");
 
     cs_close(&handle);
+}
+
+void peek_bytes_reg(pid_t pid, long amount, long regs_rt, short reg, struct breakpoint_t *file_symbols)
+{
+    int far_offset = (int)(amount / sizeof(long));
+    long data = 0, count = 0;
+    uint8_t bytes[OPCODES];
+    putc(0xa, stdout);
+
+    for (int i = 0; i <= far_offset; ++i)
+    {
+        data = ptrace(PTRACE_PEEKDATA, pid, regs_rt + (sizeof(long) * i), NULL);
+
+        if (data == -1)
+        {
+            free_wrapper(file_symbols);
+            perror("Ptrace PEEKDATA error: ");
+            exit(EXIT_FAILURE);
+        }
+
+        extract_bytes(bytes, data);
+        printf("[\x1B[01;91m0x%lx\x1B[0m]> ", regs_rt + (sizeof(long) * i));
+
+        for (short i = 0; i < OPCODES; ++i)
+        {
+            if (count < amount)
+            {
+                if (i != (OPCODES - 1))
+                {
+                    printf("\x1B[32m0x%02x ", bytes[i]);
+                    count++;
+                    continue;
+                }
+
+                printf("0x%02x\x1B[0m\n", bytes[i]);
+                count++;
+            }
+        }
+    }
+
+    putc(0xa, stdout);
+    putc(0xa, stdout);
+}
+
+void extract_gdb_words(uint32_t *gdb_words, long gdb_word, long gdb_word2)
+{
+    gdb_words[0] = (uint32_t)gdb_word;
+    gdb_words[1] = (uint32_t)(gdb_word >> 32);
+    gdb_words[2] = (uint32_t)gdb_word2;
+    gdb_words[3] = (uint32_t)(gdb_word2 >> 32);
+}
+
+void peek_words_reg(pid_t pid, long amount, long regs_rt, short reg, struct breakpoint_t *file_symbols)
+{
+    int far_offset = (int)(amount / sizeof(uint16_t)) + 1;
+    long word = 0, word2 = 0, count = 0;
+    uint32_t gdb_words[4]; // gdb doesn't respect words (16 bits), it displays a dword instead
+    
+    if (amount % 4 == 0)
+        far_offset--;
+
+    putc(0xa, stdout);
+
+    for (int i = 0; i < far_offset; i += 2)
+    {
+        word = ptrace(PTRACE_PEEKDATA, pid, regs_rt + (sizeof(long) * i), NULL);
+
+        if (word == -1)
+        {
+            free_wrapper(file_symbols);
+            perror("Ptrace PEEKDATA error: ");
+            exit(EXIT_FAILURE);
+        }
+
+        word2 = ptrace(PTRACE_PEEKDATA, pid, regs_rt + (sizeof(long) * (i + 1)), NULL);
+
+        if (word2 == -1)
+        {
+            free_wrapper(file_symbols);
+            perror("Ptrace PEEKDATA error: ");
+            exit(EXIT_FAILURE);
+        }
+
+        extract_gdb_words(gdb_words, word, word2);
+        printf("[\x1B[01;91m0x%lx\x1B[0m]> ", regs_rt + (sizeof(long) * i));
+
+        for (short i = 0; i < 4; ++i)
+        {
+            if (count < amount)
+            {
+                if (i != 3)
+                {
+                    printf("\x1B[32m0x%04x ", gdb_words[i]);
+                    count++;
+                    continue;
+                }
+
+                printf("0x%04x\x1B[0m\n", gdb_words[i]);
+                count++;
+            }
+        }
+    }
+
+    putc(0xa, stdout);
+
+    if (amount % 4 != 0)
+        putc(0xa, stdout);
 }

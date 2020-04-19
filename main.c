@@ -3,10 +3,10 @@
 extern char **environ;
 
 /*
-    Implementar o dissasembler usando capstone -> ler section .text
+    Implementar o dissasembler básico usando capstone
+    Implementar um inspecionador de memória x/s
+    Implementar um catch syscall 
     Implementar a stack
-    Implementar checksec básico (NX, PIE, RERLO, Canary, Fortify)
-    Paralelizar se possível com pthreads
 */
 
 int main(int argc, char **argv)
@@ -55,14 +55,14 @@ int main(int argc, char **argv)
     long length = 0, symtab_size = 0, base = 0;
     char *content = map_file(path, &length);
     pid_t pid = 0;
-    struct user_regs_struct regs, saved = regs;
+    struct user_regs_struct regs, saved;
     int status = 0;
     struct breakpoint_t breakpoints[MAX_BREAKPOINTS];
     Elf64_Ehdr *elf_headers;
     short elf_type = 0;
     bool first_time = true;
     struct breakpoint_t *file_symbols;
-    char previous[COMMAND_SIZE];
+    char previous[COMMAND_SIZE] = {'\0'};
 
     if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
     {
@@ -82,6 +82,7 @@ int main(int argc, char **argv)
 
     elf_type = check_type(elf_headers);
     file_symbols = extract_symbols(elf_headers, content, &symtab_size);
+
     munmap_wrapper(content, length);
 
     if (!disable_aslr())
@@ -119,7 +120,7 @@ int main(int argc, char **argv)
 
     free_wrapper(args);
     memset(&breakpoints, 0, sizeof(struct breakpoint_t) * MAX_BREAKPOINTS);
-
+    memset(&saved, 0, sizeof(struct user_regs_struct));
     printf("[\x1B[96m%ld\x1B[0m] Init session....\n", (long)pid);
 
     for (;;)
@@ -131,7 +132,23 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        if (first_time)
+        {
+            if (ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL) == -1)
+            {
+                free_wrapper(file_symbols);
+                perror("ptrace SETOPTIONS error: ");
+                return 1;
+            }
+        }
+
         if (WIFEXITED(status))
+        {
+            free_wrapper(file_symbols);
+            break;
+        }
+
+        if (WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
         {
             free_wrapper(file_symbols);
             break;
@@ -158,7 +175,7 @@ int main(int argc, char **argv)
         copy_registers(reg_cpy, &regs);
         saved = regs;
         disassembly_view(pid, &regs, file_symbols);
-        
+
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
         fflush(NULL);
@@ -170,7 +187,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        if (*buffer != '\n' && strncmp(previous, buffer, sizeof(buffer)) != 0)
+        if (*buffer != '\n' && previous != NULL && strncmp(previous, buffer, sizeof(buffer)) != 0)
             memmove(previous, buffer, sizeof(buffer));
 
     select_command:
@@ -187,7 +204,6 @@ int main(int argc, char **argv)
                     return 1;
                 }
                 continue;
-                break;
             }
             case 'c':
             {
@@ -202,14 +218,17 @@ int main(int argc, char **argv)
             }
             case 'q':
             {
-                free_wrapper(file_symbols);
-                goto end;
-                break;
+                if (ptrace(PTRACE_KILL, pid, NULL, NULL) == -1)
+                {
+                    perror("ptrace KILL error: ");
+                    return 1;
+                }
+
+                continue;
             }
             default:
                 puts("\x1B[01;93mHint\x1B[0m: man cmd");
                 goto prompt_label;
-                break;
             }
         }
         else
@@ -287,6 +306,56 @@ int main(int argc, char **argv)
                     puts("\x1B[01;93mHint\x1B[0m: man info");
                     goto prompt_label;
                 }
+            }
+            else if (strstr(buffer, "inspect") != NULL)
+            {
+                char *tokens = strtok(buffer, " ");
+                char *args[2];
+
+                sep_tokens(tokens, args);
+                tokens = strtok(args[1], " ");
+                sep_tokens(tokens, args);
+
+                char *arg = *args;
+                char *to_inspect = args[1];
+
+                if (*to_inspect == '$') //registrador
+                {
+                    to_inspect++;
+                    char *size;
+                    long amount = strtol(arg, &size, 10);
+                    short reg = -1;
+
+                    // // locate and patch the correct value
+
+                    for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
+                    {
+                        if (strncmp(registers[i], to_inspect, 3) == 0)
+                        {
+                            reg = i;
+                            break;
+                        }
+                    }
+
+                    long regs_rt = ptrace(PTRACE_PEEKUSER, pid, reg * sizeof(long), NULL);
+
+                    if (regs_rt == -1)
+                    {
+                        free_wrapper(file_symbols);
+                        perror("Ptrace PEEKUSER error: ");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    if (reg > -1)
+                    {
+                        if (*size == 'b')
+                            peek_bytes_reg(pid, amount, regs_rt, reg, file_symbols);
+                        if (*size == 'w')
+                            peek_words_reg(pid, amount, regs_rt, reg, file_symbols);
+                    }
+                }
+                else
+                    puts("memory addr");
             }
             else if (strstr(buffer, "set") != NULL)
             {
@@ -382,8 +451,9 @@ int main(int argc, char **argv)
                 {
                     breakpoint++;
                     long addr_bp = strtol(breakpoint, NULL, 16);
+                    size_t bp_length = strlen(breakpoint);
 
-                    if (elf_type == 2)
+                    if (elf_type == 2 && bp_length < 4)
                         addr_bp += base;
 
                     printf("Breakpoint on \x1B[01;91m0x%lx\x1B[0m\n", addr_bp);
@@ -423,7 +493,6 @@ int main(int argc, char **argv)
         }
     }
 
-end:
     printf("[\x1B[96m%ld\x1B[0m] End session....\n", (long)pid);
     return 0;
 }

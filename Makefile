@@ -1,20 +1,21 @@
 CC = gcc-8
 CFLAGS = -Wall -Wextra -Werror -O3
-EXEC = debugger
+EXEC = cool-debugger
 DEBUG = debugger-debug-version
 SRC= main.c debugger.c
 OBJ= $(SRC:.c=.o)
 TEST = test.c
 DEMO = $(wildcard test-*)
+LIBNAME = capstone
 
 all: release
 release: $(OBJ) 
 	@echo "Compiling release version"
-	$(CC) $(CFLAGS) -s -o $(EXEC) $(OBJ)
+	$(CC) $(CFLAGS) -s -o $(EXEC) $(OBJ) -l$(LIBNAME)
 	@echo "Done"
 debug: $(OBJ)
 	@echo "Compiling debug version"
-	$(CC) $(CFLAGS) -o $(DEBUG) $(OBJ)
+	$(CC) $(CFLAGS) -o $(DEBUG) $(OBJ) -l$(LIBNAME)
 	@echo "Done"
 debugger.o: debugger.h debugger.c
 	$(CC) -c -o debugger.o debugger.c
