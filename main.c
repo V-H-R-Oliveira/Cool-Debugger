@@ -244,7 +244,7 @@ int main(int argc, char **argv)
 
                 if (!info)
                 {
-                    puts("man <info/bp/set/cmd/check>");
+                    puts("man <info/bp/set/cmd/check>\n\x1B[01;93mAll registers are in lowercase, prefixed with $ (eg: $rax).\nAll addresses/values are prefixed with * (eg: *0xdead or *dead).\x1B[0m");
                     goto prompt_label;
                 }
 
@@ -256,8 +256,12 @@ int main(int argc, char **argv)
                     puts("set <$register>=<$register/value>");
                 else if (strncmp(info, "cmd", 3) == 0) // cmd
                     puts("\x1B[96mDebugger commands:\x1B[0m\nc -> continue\ns -> single step\nq -> quit");
+                else if (strncmp(info, "inspect", 7) == 0)
+                    puts("inspect <num(w/b)> <$register/*addr>");
                 else if (strncmp(info, "check", 5) == 0) // check
                     puts("check <aslr>");
+                else
+                    puts("\x1B[01;93mHint\x1B[0m: type man");
             }
             else if (strstr(buffer, "check") != NULL)
             {
@@ -326,8 +330,6 @@ int main(int argc, char **argv)
                     long amount = strtol(arg, &size, 10);
                     short reg = -1;
 
-                    // // locate and patch the correct value
-
                     for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
                     {
                         if (strncmp(registers[i], to_inspect, 3) == 0)
@@ -336,26 +338,50 @@ int main(int argc, char **argv)
                             break;
                         }
                     }
-
-                    long regs_rt = ptrace(PTRACE_PEEKUSER, pid, reg * sizeof(long), NULL);
-
-                    if (regs_rt == -1)
-                    {
-                        free_wrapper(file_symbols);
-                        perror("Ptrace PEEKUSER error: ");
-                        exit(EXIT_FAILURE);
-                    }
-
                     if (reg > -1)
                     {
+                        long regs_rt = ptrace(PTRACE_PEEKUSER, pid, reg * sizeof(long), NULL);
+
+                        if (regs_rt == -1)
+                        {
+                            free_wrapper(file_symbols);
+                            perror("Ptrace PEEKUSER error: ");
+                            exit(EXIT_FAILURE);
+                        }
+
                         if (*size == 'b')
-                            peek_bytes_reg(pid, amount, regs_rt, reg, file_symbols);
-                        if (*size == 'w')
-                            peek_words_reg(pid, amount, regs_rt, reg, file_symbols);
+                            peek_bytes_reg(pid, amount, regs_rt, file_symbols);
+                        else if (*size == 'w')
+                            peek_words_reg(pid, amount, regs_rt, file_symbols);
+                        else
+                        {
+                            puts("\x1B[01;93mHint\x1B[0m: man inspect");
+                            goto prompt_label;
+                        }
                     }
+                    else
+                        puts("\x1B[01;93mInvalid option or the debugger didn't recognize it (type man inspect)\x1B[0m");
+                }
+                else if (*to_inspect == '*')
+                {
+                    to_inspect++;
+                    char *size;
+                    long amount = strtol(arg, &size, 10);
+                    long addr_to_long = strtol(to_inspect, NULL, 16);
+                    size_t addr_length = strlen(to_inspect);
+
+                    if (elf_type == 2 && addr_length < 4)
+                        addr_to_long += base;
+
+                    if (*size == 'b')
+                        peek_bytes_reg(pid, amount, addr_to_long, file_symbols);
+                    else if (*size == 'w')
+                        peek_words_reg(pid, amount, addr_to_long, file_symbols);
+                    else
+                        puts("\x1B[01;93mInvalid option or the debugger didn't recognize it (type man inspect)\x1B[0m");
                 }
                 else
-                    puts("memory addr");
+                    puts("\x1B[01;93mHint\x1B[0m: man inspect");
             }
             else if (strstr(buffer, "set") != NULL)
             {

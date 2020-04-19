@@ -1,5 +1,4 @@
 #include "debugger.h"
-#include "syscalls_names.h"
 
 void menu(void)
 {
@@ -568,7 +567,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     cs_close(&handle);
 }
 
-void peek_bytes_reg(pid_t pid, long amount, long regs_rt, short reg, struct breakpoint_t *file_symbols)
+void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols)
 {
     int far_offset = (int)(amount / sizeof(long));
     long data = 0, count = 0;
@@ -618,13 +617,13 @@ void extract_gdb_words(uint32_t *gdb_words, long gdb_word, long gdb_word2)
     gdb_words[3] = (uint32_t)(gdb_word2 >> 32);
 }
 
-void peek_words_reg(pid_t pid, long amount, long regs_rt, short reg, struct breakpoint_t *file_symbols)
+void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols)
 {
     int far_offset = (int)(amount / sizeof(uint16_t)) + 1;
     long word = 0, word2 = 0, count = 0;
     uint32_t gdb_words[4]; // gdb doesn't respect words (16 bits), it displays a dword instead
     
-    if (amount % 4 == 0)
+    if (amount % 4 == 0) // for printing stuff
         far_offset--;
 
     putc(0xa, stdout);
@@ -671,6 +670,6 @@ void peek_words_reg(pid_t pid, long amount, long regs_rt, short reg, struct brea
 
     putc(0xa, stdout);
 
-    if (amount % 4 != 0)
+    if (amount % 4 != 0) // for printing stuff
         putc(0xa, stdout);
 }

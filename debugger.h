@@ -99,8 +99,10 @@ long get_base(struct breakpoint_t *, pid_t);
 // check child process features
 void check_aslr(struct breakpoint_t *);
 
-// inspect memory
+// function helpers (used in dissassembly opcodes func and inspect memory func)
 void extract_bytes(uint8_t *, long);
 void extract_gdb_words(uint32_t *, long, long);
-void peek_bytes_reg(pid_t, long, long, short, struct breakpoint_t *);
-void peek_words_reg(pid_t, long, long, short, struct breakpoint_t *);
+
+// inspect memory
+void peek_bytes_reg(pid_t, long, long, struct breakpoint_t *);
+void peek_words_reg(pid_t, long, long, struct breakpoint_t *);
