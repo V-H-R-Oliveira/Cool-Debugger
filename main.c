@@ -3,8 +3,8 @@
 extern char **environ;
 
 /*
-    Implementar um catch syscall 
     Implementar a stack
+    Implementar um catch syscall 
 */
 
 int main(int argc, char **argv)
@@ -17,7 +17,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    char buffer[COMMAND_SIZE] = {'\0'};
+    char buffer[COMMAND_SIZE] = {'\0'}, previous[COMMAND_SIZE] = {'\0'};
     unsigned long long reg_cpy[USER_REGS_STRUCT_NO] = {0};
     const char *registers[] = {
         "r15",
@@ -55,13 +55,11 @@ int main(int argc, char **argv)
     pid_t pid = 0;
     struct user_regs_struct regs, saved;
     int status = 0;
-    struct breakpoint_t breakpoints[MAX_BREAKPOINTS];
+    struct breakpoint_t breakpoints[MAX_BREAKPOINTS], *file_symbols;
     Elf64_Ehdr *elf_headers;
     short elf_type = 0;
     bool first_time = true;
-    struct breakpoint_t *file_symbols;
-    char previous[COMMAND_SIZE] = {'\0'};
-
+   
     if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
     {
         fprintf(stderr, "%s isn't an elf...\n", path);
@@ -175,7 +173,7 @@ int main(int argc, char **argv)
         copy_registers(reg_cpy, &regs);
         saved = regs;
         disassembly_view(pid, &regs, file_symbols, symtab_size);
-
+        
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
 
@@ -219,6 +217,7 @@ int main(int argc, char **argv)
             {
                 if (ptrace(PTRACE_KILL, pid, NULL, NULL) == -1)
                 {
+                    free_sym(file_symbols, symtab_size);
                     perror("ptrace KILL error: ");
                     return 1;
                 }
@@ -410,7 +409,7 @@ int main(int argc, char **argv)
                         dst++;
                         short dst_op = -1;
 
-                        // // locate and patch the correct value
+                        // locate and patch the correct value
 
                         for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
                         {

@@ -127,7 +127,7 @@ void *map_file(const char *path, long *length)
 
     rewind(f);
 
-    content = mmap(NULL, *length, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+    content = mmap(NULL, *length, PROT_READ, MAP_PRIVATE, fd, 0);
 
     if (content == MAP_FAILED)
     {
@@ -218,7 +218,15 @@ struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, lon
     char *strtab;
     Elf64_Sym *sym_tab;
     Elf64_Shdr *section_headers = (Elf64_Shdr *)((unsigned char *)elf_headers + elf_headers->e_shoff);
-    struct breakpoint_t *symbols = NULL;
+    struct breakpoint_t *symbols;
+    const long pagesize = sysconf(_SC_PAGE_SIZE);
+
+    if (pagesize == -1)
+    {
+        free_cmdargs(cmdargs);
+        perror("sysconf error: ");
+        exit(EXIT_FAILURE);
+    }
 
     for (int i = 1; i < elf_headers->e_shnum; ++i)
     {
@@ -229,12 +237,11 @@ struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, lon
             strtab = &content[section_headers[section_headers[i].sh_link].sh_offset];
             sym_tab = (Elf64_Sym *)(&content[section_headers[i].sh_offset]); // começo da secção
             *sym_size = (long)(section_headers[i].sh_size / sizeof(Elf64_Sym));
-            symbols = calloc(*sym_size, sizeof(struct breakpoint_t));
 
-            if (!symbols)
+            if (posix_memalign((void **)&symbols, pagesize, *sym_size * sizeof(struct breakpoint_t)) != 0)
             {
                 free_cmdargs(cmdargs);
-                perror("calloc error: ");
+                perror("posix memalign error: ");
                 exit(EXIT_FAILURE);
             }
 
@@ -270,6 +277,7 @@ void display_simbols(long symtab_size, struct breakpoint_t *file_symbols)
         puts("\x1B[01;93mNo symbol table...\x1B[0m");
         return;
     }
+
     for (long i = 0; i < symtab_size; ++i)
         printf("Symbol (\x1B[96m%ld\x1B[0m) => \x1B[01;91m%s\x1B[0m at \x1B[32m0x%lx\x1B[0m\n", i, file_symbols[i].symbol_name, file_symbols[i].addr);
 }
@@ -280,10 +288,11 @@ long get_base(pid_t pid, struct breakpoint_t *file_symbols, long file_symbols_si
     unsigned long base = 0;
     int i = 0;
     size_t read = 0;
+    FILE *handler;
 
     sprintf(path, "/proc/%d/maps", pid);
 
-    FILE *handler = fopen(path, "r");
+    handler = fopen(path, "r");
 
     if (!handler)
     {
@@ -332,7 +341,7 @@ void check_aslr(struct breakpoint_t *file_symbols, long file_symbols_size)
 
 void sep_tokens(char *tokens, char **args)
 {
-    int i = 0;
+    short i = 0;
 
     while (tokens != NULL)
     {
@@ -355,6 +364,7 @@ void patch_regs(pid_t pid, struct user_regs_struct *old_registers, struct breakp
 long set_breakpoint(pid_t pid, long addr, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     long ptrace_res = ptrace(PTRACE_PEEKTEXT, pid, (void *)addr, NULL);
+    unsigned long long trap = 0;
 
     if (ptrace_res == -1)
     {
@@ -363,7 +373,7 @@ long set_breakpoint(pid_t pid, long addr, struct breakpoint_t *file_symbols, lon
         exit(EXIT_FAILURE);
     }
 
-    unsigned long long trap = (ptrace_res & ~0xff) | 0xcc;
+    trap = (ptrace_res & ~0xff) | 0xcc;
 
     if (ptrace(PTRACE_POKETEXT, pid, (void *)addr, trap) == -1)
     {
@@ -539,6 +549,14 @@ void extract_bytes(uint8_t *bytes, long data)
     bytes[7] = (uint8_t)(data >> 24);
 }
 
+void extract_gdb_words(uint32_t *gdb_words, long gdb_word, long gdb_word2)
+{
+    gdb_words[0] = (uint32_t)gdb_word;
+    gdb_words[1] = (uint32_t)(gdb_word >> 32);
+    gdb_words[2] = (uint32_t)gdb_word2;
+    gdb_words[3] = (uint32_t)(gdb_word2 >> 32);
+}
+
 void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     csh handle;
@@ -569,9 +587,9 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     {
         puts("\x1B[01;93mDisassembly view:\x1B[0m\n");
 
-        for (size_t j = 0; j < count; j++)
-            printf("\x1B[96m0x%" PRIx64 ":\x1B[0m\t%s\t\t%s\n", insn[j].address, insn[j].mnemonic,
-                   insn[j].op_str);
+        for (size_t j = 0; j < count; ++j)
+            printf("\x1B[96m0x%" PRIx64 ":\x1B[0m\t%s\t\t%s\n", insn[j].address,
+                   insn[j].mnemonic, insn[j].op_str);
 
         putc(0xa, stdout);
         cs_free(insn, count);
@@ -624,19 +642,11 @@ void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
     putc(0xa, stdout);
 }
 
-void extract_gdb_words(uint32_t *gdb_words, long gdb_word, long gdb_word2)
-{
-    gdb_words[0] = (uint32_t)gdb_word;
-    gdb_words[1] = (uint32_t)(gdb_word >> 32);
-    gdb_words[2] = (uint32_t)gdb_word2;
-    gdb_words[3] = (uint32_t)(gdb_word2 >> 32);
-}
-
 void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     int far_offset = (int)(amount / sizeof(uint16_t)) + 1;
     long word = 0, word2 = 0, count = 0;
-    uint32_t gdb_words[4]; // gdb doesn't respect words (16 bits), it displays a dword instead
+    uint32_t gdb_words[4]; // gdb doesn't respect words (16 bits), it shows a dword.
 
     if (amount % 4 == 0) // for printing stuff
         far_offset--;

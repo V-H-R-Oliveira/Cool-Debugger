@@ -1,21 +1,13 @@
-#ifdef __linux__
-
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE 500
 #endif
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
-#include <sys/personality.h>
-
-#ifndef HAVE_PERSONALITY
-#include <syscall.h>
-#define personality(pers) ((long)syscall(SYS_personality, pers))
 #endif
 
-#ifndef ADDR_NO_RANDOMIZE
-#define ADDR_NO_RANDOMIZE 0x40000
-#endif
-
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200112L
 #endif
 
 #include <stdio.h>
@@ -23,18 +15,16 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <inttypes.h>
 #include <unistd.h>
-#include <errno.h>
-#include <signal.h>
 #include <elf.h>
 #include <pwd.h>
-#include <sys/signal.h>
+#include <sys/personality.h>
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/types.h>
-#include <inttypes.h>
 #include <capstone/capstone.h>
 
 #define COMMAND_SIZE 100
@@ -80,7 +70,7 @@ void modify_regs(unsigned long long *, struct user_regs_struct *);
 // Tokenize user input stuff
 void sep_tokens(char *, char **);
 
-// display process registers stuff
+// display process registers and stack
 void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **);
 void disassembly_view(pid_t, struct user_regs_struct *, struct breakpoint_t *, long);
 
