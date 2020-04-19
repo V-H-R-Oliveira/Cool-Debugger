@@ -63,17 +63,18 @@ char *username_from_uid(uid_t);
 void *map_file(const char *, long *);
 void fclose_wrapper(FILE *);
 void munmap_wrapper(void *, long);
-void free_wrapper(void *);
+void free_sym(struct breakpoint_t *, long);
+void free_cmdargs(char **);
 
 // elf parsing stuff
 short check_type(Elf64_Ehdr *);
 bool hasSections(Elf64_Ehdr *);
-struct breakpoint_t *extract_symbols(Elf64_Ehdr *, char *, long *);
+struct breakpoint_t *extract_symbols(Elf64_Ehdr *, char *, long *, char **);
 long find_symbol_addr(struct breakpoint_t *, long, const char *);
 
 // Modify process registers stuff
 void copy_registers(unsigned long long *, struct user_regs_struct *);
-void patch_regs(pid_t, struct user_regs_struct *, struct breakpoint_t *);
+void patch_regs(pid_t, struct user_regs_struct *, struct breakpoint_t *, long);
 void modify_regs(unsigned long long *, struct user_regs_struct *);
 
 // Tokenize user input stuff
@@ -81,12 +82,12 @@ void sep_tokens(char *, char **);
 
 // display process registers stuff
 void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **);
-void disassembly_view(pid_t, struct user_regs_struct *, struct breakpoint_t *);
+void disassembly_view(pid_t, struct user_regs_struct *, struct breakpoint_t *, long);
 
 // breakpoints stuff
-long set_breakpoint(pid_t, long, struct breakpoint_t *);
+long set_breakpoint(pid_t, long, struct breakpoint_t *, long);
 void store_breakpoint(struct breakpoint_t *, long, long);
-void resume_execution(pid_t, struct user_regs_struct *, struct breakpoint_t *, struct breakpoint_t *);
+void resume_execution(pid_t, struct user_regs_struct *, struct breakpoint_t *, struct breakpoint_t *, long);
 
 // info
 void display_simbols(long, struct breakpoint_t *);
@@ -94,15 +95,15 @@ void display_breakpoints(struct breakpoint_t *);
 void menu(void);
 
 // get child base for dynamic binaries
-long get_base(struct breakpoint_t *, pid_t);
+long get_base(pid_t, struct breakpoint_t *, long);
 
 // check child process features
-void check_aslr(struct breakpoint_t *);
+void check_aslr(struct breakpoint_t *, long);
 
 // function helpers (used in dissassembly opcodes func and inspect memory func)
 void extract_bytes(uint8_t *, long);
 void extract_gdb_words(uint32_t *, long, long);
 
 // inspect memory
-void peek_bytes_reg(pid_t, long, long, struct breakpoint_t *);
-void peek_words_reg(pid_t, long, long, struct breakpoint_t *);
+void peek_bytes_reg(pid_t, long, long, struct breakpoint_t *, long);
+void peek_words_reg(pid_t, long, long, struct breakpoint_t *, long);

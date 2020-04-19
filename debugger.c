@@ -158,10 +158,24 @@ void munmap_wrapper(void *content, long size)
     }
 }
 
-void free_wrapper(void *heap_block)
+void free_sym(struct breakpoint_t *file_symbols, long file_symbols_size)
 {
-    if (heap_block != NULL)
-        free(heap_block);
+    if (file_symbols != NULL)
+    {
+        for (long i = 0; i < file_symbols_size; ++i)
+            free(file_symbols[i].symbol_name);
+        free(file_symbols);
+    }
+}
+
+void free_cmdargs(char **cmdargs)
+{
+    if (cmdargs != NULL)
+    {
+        for (char **tmp = cmdargs; *tmp != NULL; ++tmp)
+            free(*tmp);
+        free(cmdargs);
+    }
 }
 
 short check_type(Elf64_Ehdr *elf_headers)
@@ -193,7 +207,7 @@ bool hasSections(Elf64_Ehdr *elf_headers)
     return true;
 }
 
-struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, long *sym_size)
+struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, long *sym_size, char **cmdargs)
 {
     if (!hasSections(elf_headers))
     {
@@ -219,6 +233,7 @@ struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, lon
 
             if (!symbols)
             {
+                free_cmdargs(cmdargs);
                 perror("calloc error: ");
                 exit(EXIT_FAILURE);
             }
@@ -259,7 +274,7 @@ void display_simbols(long symtab_size, struct breakpoint_t *file_symbols)
         printf("Symbol (\x1B[96m%ld\x1B[0m) => \x1B[01;91m%s\x1B[0m at \x1B[32m0x%lx\x1B[0m\n", i, file_symbols[i].symbol_name, file_symbols[i].addr);
 }
 
-long get_base(struct breakpoint_t *file_symbols, pid_t pid)
+long get_base(pid_t pid, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     char path[PROCS_LENGTH] = {'\0'}, buffer[200] = {'\0'}, tmp_base[15] = {'\0'};
     unsigned long base = 0;
@@ -272,7 +287,7 @@ long get_base(struct breakpoint_t *file_symbols, pid_t pid)
 
     if (!handler)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("fopen error: ");
         exit(EXIT_FAILURE);
     }
@@ -281,7 +296,7 @@ long get_base(struct breakpoint_t *file_symbols, pid_t pid)
 
     if (read == (size_t)-1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         fclose_wrapper(handler);
         perror("fread error: ");
         exit(EXIT_FAILURE);
@@ -295,13 +310,13 @@ long get_base(struct breakpoint_t *file_symbols, pid_t pid)
     return base;
 }
 
-void check_aslr(struct breakpoint_t *file_symbols)
+void check_aslr(struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     int persona = personality(CURRENT_PERSONA);
 
     if (persona == -1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("personality error: ");
         exit(EXIT_FAILURE);
     }
@@ -327,23 +342,23 @@ void sep_tokens(char *tokens, char **args)
     }
 }
 
-void patch_regs(pid_t pid, struct user_regs_struct *old_registers, struct breakpoint_t *file_symbols)
+void patch_regs(pid_t pid, struct user_regs_struct *old_registers, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     if (ptrace(PTRACE_SETREGS, pid, NULL, old_registers) == -1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("ptrace SETREGS error: ");
         exit(EXIT_FAILURE);
     }
 }
 
-long set_breakpoint(pid_t pid, long addr, struct breakpoint_t *file_symbols)
+long set_breakpoint(pid_t pid, long addr, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     long ptrace_res = ptrace(PTRACE_PEEKTEXT, pid, (void *)addr, NULL);
 
     if (ptrace_res == -1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("Ptrace PEEKTEXT error: ");
         exit(EXIT_FAILURE);
     }
@@ -352,7 +367,7 @@ long set_breakpoint(pid_t pid, long addr, struct breakpoint_t *file_symbols)
 
     if (ptrace(PTRACE_POKETEXT, pid, (void *)addr, trap) == -1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("Ptrace POKETEXT error: ");
         exit(EXIT_FAILURE);
     }
@@ -379,7 +394,7 @@ void store_breakpoint(struct breakpoint_t *breakpoint_list, long breakpoint, lon
     }
 }
 
-void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *breakpoins_list, struct breakpoint_t *file_symbols)
+void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *breakpoins_list, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     struct breakpoint_t tmp;
     short which = 0;
@@ -403,13 +418,13 @@ void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoin
 
     if (ptrace(PTRACE_POKETEXT, pid, (void *)tmp.addr, tmp.breakpoint) == -1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("ptrace POKETEXT error: ");
         exit(EXIT_FAILURE);
     }
 
     regs->rip = tmp.addr;
-    patch_regs(pid, regs, file_symbols);
+    patch_regs(pid, regs, file_symbols, file_symbols_size);
 }
 
 void display_breakpoints(struct breakpoint_t *breakpoint_list)
@@ -524,7 +539,7 @@ void extract_bytes(uint8_t *bytes, long data)
     bytes[7] = (uint8_t)(data >> 24);
 }
 
-void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols)
+void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     csh handle;
     cs_insn *insn;
@@ -534,7 +549,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
 
     if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         return;
     }
 
@@ -542,7 +557,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
 
     if (opcodes == -1)
     {
-        free_wrapper(file_symbols);
+        free_sym(file_symbols, file_symbols_size);
         perror("ptrace PEEKTEXT error: ");
         exit(EXIT_FAILURE);
     }
@@ -567,7 +582,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     cs_close(&handle);
 }
 
-void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols)
+void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     int far_offset = (int)(amount / sizeof(long));
     long data = 0, count = 0;
@@ -580,7 +595,7 @@ void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
 
         if (data == -1)
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, file_symbols_size);
             perror("Ptrace PEEKDATA error: ");
             exit(EXIT_FAILURE);
         }
@@ -617,12 +632,12 @@ void extract_gdb_words(uint32_t *gdb_words, long gdb_word, long gdb_word2)
     gdb_words[3] = (uint32_t)(gdb_word2 >> 32);
 }
 
-void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols)
+void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols, long file_symbols_size)
 {
     int far_offset = (int)(amount / sizeof(uint16_t)) + 1;
     long word = 0, word2 = 0, count = 0;
     uint32_t gdb_words[4]; // gdb doesn't respect words (16 bits), it displays a dword instead
-    
+
     if (amount % 4 == 0) // for printing stuff
         far_offset--;
 
@@ -634,7 +649,7 @@ void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
 
         if (word == -1)
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, file_symbols_size);
             perror("Ptrace PEEKDATA error: ");
             exit(EXIT_FAILURE);
         }
@@ -643,7 +658,7 @@ void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
 
         if (word2 == -1)
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, file_symbols_size);
             perror("Ptrace PEEKDATA error: ");
             exit(EXIT_FAILURE);
         }

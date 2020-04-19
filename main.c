@@ -3,8 +3,6 @@
 extern char **environ;
 
 /*
-    Implementar o dissasembler básico usando capstone
-    Implementar um inspecionador de memória x/s
     Implementar um catch syscall 
     Implementar a stack
 */
@@ -81,7 +79,7 @@ int main(int argc, char **argv)
     }
 
     elf_type = check_type(elf_headers);
-    file_symbols = extract_symbols(elf_headers, content, &symtab_size);
+    file_symbols = extract_symbols(elf_headers, content, &symtab_size, args);
 
     munmap_wrapper(content, length);
 
@@ -92,7 +90,8 @@ int main(int argc, char **argv)
 
     if (pid == -1)
     {
-        free_wrapper(file_symbols);
+        free_cmdargs(args);
+        free_sym(file_symbols, symtab_size);
         perror("fork error: ");
         return 1;
     }
@@ -101,24 +100,25 @@ int main(int argc, char **argv)
     {
         if (ptrace(PTRACE_TRACEME, pid, NULL, NULL) == -1)
         {
-            free_wrapper(file_symbols);
+            free_cmdargs(args);
+            free_sym(file_symbols, symtab_size);
             perror("ptrace TRACEME error: ");
             return 1;
         }
 
         if (execve(*args, args, environ) == -1)
         {
-            free_wrapper(file_symbols);
-            free_wrapper(args);
+            free_cmdargs(args);
+            free_sym(file_symbols, symtab_size);
             perror("execve error: ");
             return 1;
         }
 
-        free_wrapper(args);
+        free_cmdargs(args);
         return 0;
     }
 
-    free_wrapper(args);
+    free_cmdargs(args);
     memset(&breakpoints, 0, sizeof(struct breakpoint_t) * MAX_BREAKPOINTS);
     memset(&saved, 0, sizeof(struct user_regs_struct));
     printf("[\x1B[96m%ld\x1B[0m] Init session....\n", (long)pid);
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
     {
         if (wait(&status) == -1)
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, symtab_size);
             perror("wait error: ");
             return 1;
         }
@@ -136,7 +136,7 @@ int main(int argc, char **argv)
         {
             if (ptrace(PTRACE_SETOPTIONS, pid, 0, PTRACE_O_EXITKILL) == -1)
             {
-                free_wrapper(file_symbols);
+                free_sym(file_symbols, symtab_size);
                 perror("ptrace SETOPTIONS error: ");
                 return 1;
             }
@@ -144,25 +144,25 @@ int main(int argc, char **argv)
 
         if (WIFEXITED(status))
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, symtab_size);
             break;
         }
 
         if (WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL)
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, symtab_size);
             break;
         }
 
         if (elf_type == 2 && first_time)
         {
-            base = get_base(file_symbols, pid);
+            base = get_base(pid, file_symbols, symtab_size);
             first_time = false;
         }
 
         if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1)
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, symtab_size);
             perror("ptrace GETREGS error: ");
             return 1;
         }
@@ -170,19 +170,18 @@ int main(int argc, char **argv)
         format_print(&regs, &saved, registers);
 
         if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP)
-            resume_execution(pid, &regs, breakpoints, file_symbols);
+            resume_execution(pid, &regs, breakpoints, file_symbols, symtab_size);
 
         copy_registers(reg_cpy, &regs);
         saved = regs;
-        disassembly_view(pid, &regs, file_symbols);
+        disassembly_view(pid, &regs, file_symbols, symtab_size);
 
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
-        fflush(NULL);
 
         if (!fgets(buffer, COMMAND_SIZE, stdin))
         {
-            free_wrapper(file_symbols);
+            free_sym(file_symbols, symtab_size);
             perror("fgets error: ");
             return 1;
         }
@@ -199,7 +198,7 @@ int main(int argc, char **argv)
             {
                 if (ptrace(PTRACE_SINGLESTEP, pid, NULL, NULL) == -1)
                 {
-                    free_wrapper(file_symbols);
+                    free_sym(file_symbols, symtab_size);
                     perror("ptrace SINGLESTEP error: ");
                     return 1;
                 }
@@ -209,7 +208,7 @@ int main(int argc, char **argv)
             {
                 if (ptrace(PTRACE_CONT, pid, NULL, NULL) == -1)
                 {
-                    free_wrapper(file_symbols);
+                    free_sym(file_symbols, symtab_size);
                     perror("ptrace CONT error: ");
                     return 1;
                 }
@@ -244,7 +243,9 @@ int main(int argc, char **argv)
 
                 if (!info)
                 {
-                    puts("man <info/bp/set/cmd/check>\n\x1B[01;93mAll registers are in lowercase, prefixed with $ (eg: $rax).\nAll addresses/values are prefixed with * (eg: *0xdead or *dead).\x1B[0m");
+                    puts("man <info/bp/set/cmd/check>\n\x1B[01;93m\n"
+                         "All registers are in lowercase, prefixed with $ (eg: $rax).\n"
+                         "All addresses/values are prefixed with * (eg: *0xdead or *dead).\x1B[0m");
                     goto prompt_label;
                 }
 
@@ -279,7 +280,7 @@ int main(int argc, char **argv)
                 }
 
                 if (strncmp(info, "aslr", 4) == 0)
-                    check_aslr(file_symbols);
+                    check_aslr(file_symbols, symtab_size);
                 else
                 {
                     puts("\x1B[01;93mHint\x1B[0m: man check");
@@ -323,6 +324,12 @@ int main(int argc, char **argv)
                 char *arg = *args;
                 char *to_inspect = args[1];
 
+                if (!to_inspect)
+                {
+                    puts("\x1B[01;93mHint\x1B[0m: man inspect");
+                    goto prompt_label;
+                }
+
                 if (*to_inspect == '$') //registrador
                 {
                     to_inspect++;
@@ -344,15 +351,15 @@ int main(int argc, char **argv)
 
                         if (regs_rt == -1)
                         {
-                            free_wrapper(file_symbols);
+                            free_sym(file_symbols, symtab_size);
                             perror("Ptrace PEEKUSER error: ");
                             exit(EXIT_FAILURE);
                         }
 
                         if (*size == 'b')
-                            peek_bytes_reg(pid, amount, regs_rt, file_symbols);
+                            peek_bytes_reg(pid, amount, regs_rt, file_symbols, symtab_size);
                         else if (*size == 'w')
-                            peek_words_reg(pid, amount, regs_rt, file_symbols);
+                            peek_words_reg(pid, amount, regs_rt, file_symbols, symtab_size);
                         else
                         {
                             puts("\x1B[01;93mHint\x1B[0m: man inspect");
@@ -360,7 +367,7 @@ int main(int argc, char **argv)
                         }
                     }
                     else
-                        puts("\x1B[01;93mInvalid option or the debugger didn't recognize it (type man inspect)\x1B[0m");
+                        puts("\x1B[01;93mHint\x1B[0m: man inspect");
                 }
                 else if (*to_inspect == '*')
                 {
@@ -374,11 +381,11 @@ int main(int argc, char **argv)
                         addr_to_long += base;
 
                     if (*size == 'b')
-                        peek_bytes_reg(pid, amount, addr_to_long, file_symbols);
+                        peek_bytes_reg(pid, amount, addr_to_long, file_symbols, symtab_size);
                     else if (*size == 'w')
-                        peek_words_reg(pid, amount, addr_to_long, file_symbols);
+                        peek_words_reg(pid, amount, addr_to_long, file_symbols, symtab_size);
                     else
-                        puts("\x1B[01;93mInvalid option or the debugger didn't recognize it (type man inspect)\x1B[0m");
+                        puts("\x1B[01;93mHint\x1B[0m: man inspect");
                 }
                 else
                     puts("\x1B[01;93mHint\x1B[0m: man inspect");
@@ -421,7 +428,7 @@ int main(int argc, char **argv)
                             printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => imm \x1B[32m 0x%lx\x1B[0m\n", registers[dst_op], reg_cpy[dst_op], val);
                             reg_cpy[dst_op] = val;
                             modify_regs(reg_cpy, &regs);
-                            patch_regs(pid, &regs, file_symbols);
+                            patch_regs(pid, &regs, file_symbols, symtab_size);
                         }
                     }
                     else if (*src == '$') // registrador....
@@ -446,10 +453,12 @@ int main(int argc, char **argv)
                             puts("Invalid register or register not accepted by the debugger...");
                         else
                         {
-                            printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => reg [\x1B[01;93m%s\x1B[0m]\x1B[32m 0x%llx\x1B[0m\n", registers[dst_op], reg_cpy[dst_op], registers[src_op], reg_cpy[src_op]);
+                            printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => "
+                                   "reg [\x1B[01;93m%s\x1B[0m]\x1B[32m 0x%llx\x1B[0m\n",
+                                   registers[dst_op], reg_cpy[dst_op], registers[src_op], reg_cpy[src_op]);
                             reg_cpy[dst_op] = reg_cpy[src_op];
                             modify_regs(reg_cpy, &regs);
-                            patch_regs(pid, &regs, file_symbols);
+                            patch_regs(pid, &regs, file_symbols, symtab_size);
                         }
                     }
                     else
@@ -473,6 +482,12 @@ int main(int argc, char **argv)
 
                 char *breakpoint = args[1];
 
+                if (!breakpoint)
+                {
+                    puts("\x1B[01;93mHint\x1B[0m: man bp");
+                    goto prompt_label;
+                }
+
                 if (*breakpoint == '*') // endereço
                 {
                     breakpoint++;
@@ -483,10 +498,10 @@ int main(int argc, char **argv)
                         addr_bp += base;
 
                     printf("Breakpoint on \x1B[01;91m0x%lx\x1B[0m\n", addr_bp);
-                    long bp = set_breakpoint(pid, addr_bp, file_symbols);
+                    long bp = set_breakpoint(pid, addr_bp, file_symbols, symtab_size);
                     store_breakpoint(breakpoints, bp, addr_bp);
                 }
-                else // símbolo
+                else if (*breakpoint != '*') // símbolo
                 {
                     long addr_bp = find_symbol_addr(file_symbols, symtab_size, breakpoint);
 
@@ -500,7 +515,7 @@ int main(int argc, char **argv)
                         addr_bp += base;
 
                     printf("Breakpoint on \x1B[01;94m(%s)\x1B[0m => \x1B[01;91m0x%lx\x1B[0m\n", breakpoint, addr_bp);
-                    long bp = set_breakpoint(pid, addr_bp, file_symbols);
+                    long bp = set_breakpoint(pid, addr_bp, file_symbols, symtab_size);
                     store_breakpoint(breakpoints, bp, addr_bp);
                 }
             }
