@@ -2,11 +2,6 @@
 
 extern char **environ;
 
-/*
-    Implementar a stack
-    Implementar um catch syscall 
-*/
-
 int main(int argc, char **argv)
 {
     menu();
@@ -20,18 +15,44 @@ int main(int argc, char **argv)
     char buffer[COMMAND_SIZE] = {'\0'}, previous[COMMAND_SIZE] = {'\0'};
     unsigned long long reg_cpy[USER_REGS_STRUCT_NO] = {0};
     const char *registers[] = {
-        "r15", "r14", "r13", "r12",
-        "rbp", "rbx", "r11", "r10",
-        "r9", "r8", "rax", "rcx",
-        "rdx", "rsi", "rdi", "orig_rax",
-        "rip", "cs", "eflags", "rsp",
-        "ss", "fs_base", "gs_base", "ds",
-        "es", "fs", "gs",
+        "r15",
+        "r14",
+        "r13",
+        "r12",
+        "rbp",
+        "rbx",
+        "r11",
+        "r10",
+        "r9",
+        "r8",
+        "rax",
+        "rcx",
+        "rdx",
+        "rsi",
+        "rdi",
+        "orig_rax",
+        "rip",
+        "cs",
+        "eflags",
+        "rsp",
+        "ss",
+        "fs_base",
+        "gs_base",
+        "ds",
+        "es",
+        "fs",
+        "gs",
     };
     const struct eflags_t flags[] = {
-        {"CARRY", 0x1}, {"PARITY", 0x4}, {"ADJUST", 0x10},
-        {"ZERO", 0x40}, {"SIGN", 0x80}, {"TRAP", 0x100},
-        {"INTERRUPT", 0x200}, {"DIRECTION", 0x400}, {"OVERFLOW", 0x800},
+        {"CARRY", 0x1},
+        {"PARITY", 0x4},
+        {"ADJUST", 0x10},
+        {"ZERO", 0x40},
+        {"SIGN", 0x80},
+        {"TRAP", 0x100},
+        {"INTERRUPT", 0x200},
+        {"DIRECTION", 0x400},
+        {"OVERFLOW", 0x800},
     };
     const char *path = argv[1];
     long length = 0, symtab_size = 0, base = 0;
@@ -43,8 +64,10 @@ int main(int argc, char **argv)
     Elf64_Ehdr *elf_headers;
     short elf_type = 0;
     bool first_time = true;
-   
-    if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
+    size_t previous_length = 0;
+    char **args;
+
+    if (!isElf(content))
     {
         fprintf(stderr, "%s isn't an elf...\n", path);
         munmap_wrapper(content, length);
@@ -53,14 +76,14 @@ int main(int argc, char **argv)
 
     elf_headers = (Elf64_Ehdr *)content;
 
-    if (elf_headers->e_ident[EI_CLASS] != ELFCLASS64)
+    if (!is_x86_64(elf_headers))
     {
         fprintf(stderr, "%s isn't supported...\nCurrent arch support: x86_64\n", path);
         munmap_wrapper(content, length);
         return 1;
     }
 
-    char **args = extract_cmdline_args(argc, argv);
+    args = extract_cmdline_args(argc, argv);
 
     if (!args)
     {
@@ -164,7 +187,8 @@ int main(int argc, char **argv)
 
         copy_registers(reg_cpy, &regs);
         saved = regs;
-        disassembly_view(pid, &regs, file_symbols, symtab_size);        
+        disassembly_view(pid, &regs, file_symbols, symtab_size);
+
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
 
@@ -176,7 +200,10 @@ int main(int argc, char **argv)
         }
 
         if (*buffer != '\n' && previous != NULL && strncmp(previous, buffer, sizeof(buffer)) != 0)
+        {
+            previous_length = strlen(buffer);
             memmove(previous, buffer, sizeof(buffer));
+        }
 
     select_command:
         if ((strlen(buffer) - 1) == 1)
@@ -217,309 +244,35 @@ int main(int argc, char **argv)
             }
             default:
                 puts("\x1B[01;93mHint\x1B[0m: man cmd");
-                goto prompt_label;
+                break;
             }
         }
         else
         {
             if (strstr(buffer, "man") != NULL)
-            {
-                char *tokens = strtok(buffer, " ");
-                char *args[2];
-
-                sep_tokens(tokens, args);
-
-                char *info = args[1];
-
-                if (!info)
-                {
-                    puts("man <info/bp/set/cmd/check>\n\x1B[01;93m\n"
-                         "All registers are in lowercase, prefixed with $ (eg: $rax).\n"
-                         "All addresses/values are prefixed with * (eg: *0xdead or *dead).\x1B[0m");
-                    goto prompt_label;
-                }
-
-                if (strncmp(info, "info", 3) == 0) // info
-                    puts("info <bp/sym>");
-                else if (strncmp(info, "bp", 2) == 0) // breakpoints
-                    puts("bp <symbol/*address>");
-                else if (strncmp(info, "set", 3) == 0)
-                    puts("set <$register>=<$register/value>");
-                else if (strncmp(info, "cmd", 3) == 0)
-                    puts("\x1B[96mDebugger commands:\x1B[0m\nc -> continue\ns -> single step\nq -> quit");
-                else if (strncmp(info, "inspect", 7) == 0)
-                    puts("inspect <num(w/b)> <$register/*addr>");
-                else if (strncmp(info, "check", 5) == 0)
-                    puts("check <aslr>");
-                else
-                    puts("\x1B[01;93mHint\x1B[0m: type man");
-            }
+                display_man(buffer);
             else if (strstr(buffer, "check") != NULL)
-            {
-                char *tokens = strtok(buffer, " ");
-                char *args[2];
-
-                sep_tokens(tokens, args);
-
-                char *info = args[1];
-
-                if (!info)
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man check");
-                    goto prompt_label;
-                }
-
-                if (strncmp(info, "aslr", 4) == 0)
-                    check_aslr(file_symbols, symtab_size);
-                else
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man check");
-                    goto prompt_label;
-                }
-            }
+                check_feature(buffer, file_symbols, symtab_size);
             else if (strstr(buffer, "info") != NULL)
-            {
-                char *tokens = strtok(buffer, " ");
-                char *args[2];
-
-                sep_tokens(tokens, args);
-
-                char *info = args[1];
-
-                if (!info)
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man info");
-                    goto prompt_label;
-                }
-
-                if (strncmp(info, "sym", 3) == 0) // símbolos
-                    display_simbols(symtab_size, file_symbols);
-                else if (strncmp(info, "bp", 2) == 0) // breakpoints
-                    display_breakpoints(breakpoints);
-                else
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man info");
-                    goto prompt_label;
-                }
-            }
+                display_process_info(buffer, breakpoints, file_symbols, symtab_size);
             else if (strstr(buffer, "inspect") != NULL)
-            {
-                char *tokens = strtok(buffer, " ");
-                char *args[2];
-
-                sep_tokens(tokens, args);
-                tokens = strtok(args[1], " ");
-                sep_tokens(tokens, args);
-
-                char *arg = *args;
-                char *to_inspect = args[1];
-
-                if (!to_inspect)
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man inspect");
-                    goto prompt_label;
-                }
-
-                if (*to_inspect == '$') //registrador
-                {
-                    to_inspect++;
-                    char *size;
-                    long amount = strtol(arg, &size, 10);
-                    short reg = -1;
-
-                    for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
-                    {
-                        if (strncmp(registers[i], to_inspect, 3) == 0)
-                        {
-                            reg = i;
-                            break;
-                        }
-                    }
-                    if (reg > -1)
-                    {
-                        long regs_rt = ptrace(PTRACE_PEEKUSER, pid, reg * sizeof(long), NULL);
-
-                        if (regs_rt == -1)
-                        {
-                            free_sym(file_symbols, symtab_size);
-                            perror("Ptrace PEEKUSER error: ");
-                            exit(EXIT_FAILURE);
-                        }
-
-                        if (*size == 'b')
-                            peek_bytes_reg(pid, amount, regs_rt, file_symbols, symtab_size);
-                        else if (*size == 'w')
-                            peek_words_reg(pid, amount, regs_rt, file_symbols, symtab_size);
-                        else
-                        {
-                            puts("\x1B[01;93mHint\x1B[0m: man inspect");
-                            goto prompt_label;
-                        }
-                    }
-                    else
-                        puts("\x1B[01;93mHint\x1B[0m: man inspect");
-                }
-                else if (*to_inspect == '*')
-                {
-                    to_inspect++;
-                    char *size;
-                    long amount = strtol(arg, &size, 10);
-                    long addr_to_long = strtol(to_inspect, NULL, 16);
-                    size_t addr_length = strlen(to_inspect);
-
-                    if (elf_type == 2 && addr_length < 4)
-                        addr_to_long += base;
-
-                    if (*size == 'b')
-                        peek_bytes_reg(pid, amount, addr_to_long, file_symbols, symtab_size);
-                    else if (*size == 'w')
-                        peek_words_reg(pid, amount, addr_to_long, file_symbols, symtab_size);
-                    else
-                        puts("\x1B[01;93mHint\x1B[0m: man inspect");
-                }
-                else
-                    puts("\x1B[01;93mHint\x1B[0m: man inspect");
-            }
+                inspect_memory(pid, buffer, file_symbols, symtab_size, registers, elf_type, base);
             else if (strstr(buffer, "set") != NULL)
-            {
-                char *tokens = strtok(buffer, " ");
-                char *args[2];
-
-                sep_tokens(tokens, args);
-                tokens = strtok(args[1], "=");
-                sep_tokens(tokens, args);
-
-                char *dst = *args;
-                char *src = args[1];
-
-                if (*dst == '$')
-                {
-                    if (*src != '$') // valor
-                    {
-                        long val = strtol(src, NULL, 16);
-                        dst++;
-                        short dst_op = -1;
-
-                        // locate and patch the correct value
-
-                        for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
-                        {
-                            if (strncmp(registers[i], dst, 3) == 0)
-                            {
-                                dst_op = i;
-                                break;
-                            }
-                        }
-
-                        if (dst_op == -1)
-                            puts("Invalid register or register not accepted by the debugger...");
-                        else
-                        {
-                            printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => imm \x1B[32m 0x%lx\x1B[0m\n", registers[dst_op], reg_cpy[dst_op], val);
-                            reg_cpy[dst_op] = val;
-                            modify_regs(reg_cpy, &regs);
-                            patch_regs(pid, &regs, file_symbols, symtab_size);
-                        }
-                    }
-                    else if (*src == '$') // registrador....
-                    {
-                        dst++;
-                        src++;
-                        short dst_op = -1, src_op = -1;
-
-                        // locate and patch the correct value
-
-                        for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
-                        {
-                            if (dst_op != -1 && src_op != -1)
-                                break;
-                            if (strncmp(registers[i], dst, 3) == 0)
-                                dst_op = i;
-                            if (strncmp(registers[i], src, 3) == 0)
-                                src_op = i;
-                        }
-
-                        if (dst_op == -1 || src_op == -1)
-                            puts("Invalid register or register not accepted by the debugger...");
-                        else
-                        {
-                            printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => "
-                                   "reg [\x1B[01;93m%s\x1B[0m]\x1B[32m 0x%llx\x1B[0m\n",
-                                   registers[dst_op], reg_cpy[dst_op], registers[src_op], reg_cpy[src_op]);
-                            reg_cpy[dst_op] = reg_cpy[src_op];
-                            modify_regs(reg_cpy, &regs);
-                            patch_regs(pid, &regs, file_symbols, symtab_size);
-                        }
-                    }
-                    else
-                    {
-                        puts("\x1B[01;93mHint\x1B[0m: man set");
-                        goto prompt_label;
-                    }
-                }
-                else
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man set");
-                    goto prompt_label;
-                }
-            }
+                set_command(pid, buffer, registers, reg_cpy, &regs, file_symbols, symtab_size);
             else if (strstr(buffer, "bp") != NULL)
-            {
-                char *tokens = strtok(buffer, " ");
-                char *args[2];
-
-                sep_tokens(tokens, args);
-
-                char *breakpoint = args[1];
-
-                if (!breakpoint)
-                {
-                    puts("\x1B[01;93mHint\x1B[0m: man bp");
-                    goto prompt_label;
-                }
-
-                if (*breakpoint == '*') // endereço
-                {
-                    breakpoint++;
-                    long addr_bp = strtol(breakpoint, NULL, 16);
-                    size_t bp_length = strlen(breakpoint);
-
-                    if (elf_type == 2 && bp_length < 4)
-                        addr_bp += base;
-
-                    printf("Breakpoint on \x1B[01;91m0x%lx\x1B[0m\n", addr_bp);
-                    long bp = set_breakpoint(pid, addr_bp, file_symbols, symtab_size);
-                    store_breakpoint(breakpoints, bp, addr_bp);
-                }
-                else if (*breakpoint != '*') // símbolo
-                {
-                    long addr_bp = find_symbol_addr(file_symbols, symtab_size, breakpoint);
-
-                    if (addr_bp == -1)
-                    {
-                        printf("[\x1B[01;93mWARNING\x1B[0m] Symbol %s not found...\n", breakpoint);
-                        goto prompt_label;
-                    }
-
-                    if (elf_type == 2)
-                        addr_bp += base;
-
-                    printf("Breakpoint on \x1B[01;94m(%s)\x1B[0m => \x1B[01;91m0x%lx\x1B[0m\n", breakpoint, addr_bp);
-                    long bp = set_breakpoint(pid, addr_bp, file_symbols, symtab_size);
-                    store_breakpoint(breakpoints, bp, addr_bp);
-                }
-            }
+                bp_command(pid, buffer, breakpoints, elf_type, base, file_symbols, symtab_size);
             else
             {
                 if (*buffer == '\n' && *previous != '\0')
                 {
                     printf("[\x1B[01;93mINFO\x1B[0m] Executing the previous instruction: %s\n", previous);
-                    strncpy(buffer, previous, strlen(previous));
+                    strncpy(buffer, previous, previous_length);
                     goto select_command;
                 }
 
                 puts("\x1B[01;93mHint\x1B[0m: type man");
             }
+
             goto prompt_label;
         }
     }

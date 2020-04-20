@@ -28,9 +28,23 @@ void menu(void)
     printf("Hello \x1B[01;95m%s\x1B[0m !!!\nIf it is your first time, type \x1B[01;93mman\x1B[0m\n", username_from_uid(geteuid()));
 }
 
+bool isElf(const char *content)
+{
+    if (*content != 0x7f && strncmp(&content[0], "ELF", 3) != 0)
+        return false;
+    return true;
+}
+
+bool is_x86_64(const Elf64_Ehdr *elf_headers)
+{
+    if (elf_headers->e_ident[EI_CLASS] != ELFCLASS64)
+        return false;
+    return true;
+}
+
 bool disable_aslr(void)
 {
-    unsigned long pers_value = PER_LINUX | ADDR_NO_RANDOMIZE;
+    const unsigned long pers_value = PER_LINUX | ADDR_NO_RANDOMIZE;
 
     if (personality(pers_value) < 0)
         return false;
@@ -155,7 +169,7 @@ void munmap_wrapper(void *content, long size)
     }
 }
 
-void free_sym(struct breakpoint_t *file_symbols, long file_symbols_size)
+void free_sym(struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     if (file_symbols != NULL)
     {
@@ -175,7 +189,7 @@ void free_cmdargs(char **cmdargs)
     }
 }
 
-short check_type(Elf64_Ehdr *elf_headers)
+short check_type(const Elf64_Ehdr *elf_headers)
 {
     switch (elf_headers->e_type)
     {
@@ -197,14 +211,14 @@ short check_type(Elf64_Ehdr *elf_headers)
     }
 }
 
-bool hasSections(Elf64_Ehdr *elf_headers)
+bool hasSections(const Elf64_Ehdr *elf_headers)
 {
     if (elf_headers->e_shnum == 0 || elf_headers->e_shstrndx == 0 || elf_headers->e_shoff == 0)
         return false;
     return true;
 }
 
-struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, long *sym_size, char **cmdargs)
+struct breakpoint_t *extract_symbols(const Elf64_Ehdr *elf_headers, char *content, long *sym_size, char **cmdargs)
 {
     if (!hasSections(elf_headers))
     {
@@ -259,7 +273,7 @@ struct breakpoint_t *extract_symbols(Elf64_Ehdr *elf_headers, char *content, lon
     return NULL;
 }
 
-long find_symbol_addr(struct breakpoint_t *file_symbols, long symtab_size, const char *symbol)
+long find_symbol_addr(const struct breakpoint_t *file_symbols, const long symtab_size, const char *symbol)
 {
     for (long i = 0; i < symtab_size; ++i)
         if (strcmp(file_symbols[i].symbol_name, symbol) == 0)
@@ -267,7 +281,7 @@ long find_symbol_addr(struct breakpoint_t *file_symbols, long symtab_size, const
     return -1;
 }
 
-void display_simbols(long symtab_size, struct breakpoint_t *file_symbols)
+void display_simbols(const struct breakpoint_t *file_symbols, const long symtab_size)
 {
     if (symtab_size == 0)
     {
@@ -279,7 +293,7 @@ void display_simbols(long symtab_size, struct breakpoint_t *file_symbols)
         printf("Symbol (\x1B[96m%ld\x1B[0m) => \x1B[01;91m%s\x1B[0m at \x1B[32m0x%lx\x1B[0m\n", i, file_symbols[i].symbol_name, file_symbols[i].addr);
 }
 
-long get_base(pid_t pid, struct breakpoint_t *file_symbols, long file_symbols_size)
+long get_base(const pid_t pid, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     char path[PROCS_LENGTH] = {'\0'}, buffer[200] = {'\0'}, tmp_base[15] = {'\0'};
     unsigned long base = 0;
@@ -316,7 +330,7 @@ long get_base(pid_t pid, struct breakpoint_t *file_symbols, long file_symbols_si
     return base;
 }
 
-void check_aslr(struct breakpoint_t *file_symbols, long file_symbols_size)
+void check_aslr(struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     int persona = personality(CURRENT_PERSONA);
 
@@ -348,7 +362,161 @@ void sep_tokens(char *tokens, char **args)
     }
 }
 
-void patch_regs(pid_t pid, struct user_regs_struct *old_registers, struct breakpoint_t *file_symbols, long file_symbols_size)
+void display_man(char *buffer)
+{
+    char *tokens = strtok(buffer, " ");
+    char *args[2];
+    char *info;
+
+    memset(args, 0, 2 * sizeof(char *));
+    sep_tokens(tokens, args);
+
+    info = args[1];
+
+    if (!info)
+    {
+        puts("man <info/bp/set/cmd/check>\n\x1B[01;93m\n"
+             "All registers are in lowercase, prefixed with $ (eg: $rax).\n"
+             "All addresses/values are prefixed with * (eg: *0xdead or *dead).\x1B[0m");
+        return;
+    }
+
+    if (strncmp(info, "info", 3) == 0)
+        puts("info <bp/sym>");
+    else if (strncmp(info, "bp", 2) == 0)
+        puts("bp <symbol/*address>");
+    else if (strncmp(info, "set", 3) == 0)
+        puts("set <$register>=<$register/value>");
+    else if (strncmp(info, "cmd", 3) == 0)
+        puts("\x1B[96mDebugger commands:\x1B[0m\nc -> continue\ns -> single step\nq -> quit");
+    else if (strncmp(info, "inspect", 7) == 0)
+        puts("inspect <num(w/b)> <$register/*addr>");
+    else if (strncmp(info, "check", 5) == 0)
+        puts("check <aslr>");
+    else
+        puts("\x1B[01;93mHint\x1B[0m: type man");
+}
+
+void check_feature(char *buffer, struct breakpoint_t *file_symbols, const long symtab_size)
+{
+    char *tokens = strtok(buffer, " ");
+    char *args[2];
+    char *info;
+
+    memset(args, 0, 2 * sizeof(char *));
+    sep_tokens(tokens, args);
+
+    info = args[1];
+
+    if (!info)
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man check");
+        return;
+    }
+
+    if (strncmp(info, "aslr", 4) == 0)
+        check_aslr(file_symbols, symtab_size);
+    else
+        puts("\x1B[01;93mHint\x1B[0m: man check");
+}
+
+void display_process_info(char *buffer, const struct breakpoint_t *breakpoints, const struct breakpoint_t *file_symbols, const long symtab_size)
+{
+    char *tokens = strtok(buffer, " ");
+    char *args[2];
+    char *info;
+
+    memset(args, 0, 2 * sizeof(char *));
+    sep_tokens(tokens, args);
+
+    info = args[1];
+
+    if (!info)
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man info");
+        return;
+    }
+
+    if (strncmp(info, "sym", 3) == 0)
+        display_simbols(file_symbols, symtab_size);
+    else if (strncmp(info, "bp", 2) == 0)
+        display_breakpoints(breakpoints);
+    else
+        puts("\x1B[01;93mHint\x1B[0m: man info");
+}
+
+void inspect_memory(const pid_t pid, char *buffer, struct breakpoint_t *file_symbols, const long symtab_size, const char **registers, const short elf_type, const long base)
+{
+    char *tokens = strtok(buffer, " ");
+    char *args[2];
+    char *to_inspect, *quantity, *size;
+    long amount = 0, addr = 0;
+    short reg = -1;
+    size_t addr_length = 0;
+
+    memset(args, 0, 2 * sizeof(char *));
+    sep_tokens(tokens, args);
+    tokens = strtok(args[1], " ");
+    sep_tokens(tokens, args);
+
+    quantity = *args;
+    to_inspect = args[1];
+
+    if (!to_inspect)
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man inspect");
+        return;
+    }
+
+    if (*to_inspect == '$') // register
+    {
+        to_inspect++;
+        amount = strtol(quantity, &size, 10);
+
+        for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
+        {
+            if (strncmp(registers[i], to_inspect, 3) == 0)
+            {
+                reg = i;
+                break;
+            }
+        }
+
+        if (reg > -1)
+        {
+            addr = ptrace(PTRACE_PEEKUSER, pid, reg * sizeof(long), NULL);
+
+            if (addr == -1)
+            {
+                free_sym(file_symbols, symtab_size);
+                perror("ptrace PEEKUSER error: ");
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+    else if (*to_inspect == '*') // address
+    {
+        to_inspect++;
+        amount = strtol(quantity, &size, 10);
+        addr = strtol(to_inspect, NULL, 16);
+        addr_length = strlen(to_inspect);
+
+        if (elf_type == 2 && addr_length < 4)
+            addr += base;
+    }
+    else
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man inspect");
+        return;
+    }
+
+    if (*size == 'b')
+        peek_bytes(pid, amount, addr, file_symbols, symtab_size);
+    else if (*size == 'w')
+        peek_words(pid, amount, addr, file_symbols, symtab_size);
+}
+
+void patch_regs(const pid_t pid, struct user_regs_struct *old_registers, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     if (ptrace(PTRACE_SETREGS, pid, NULL, old_registers) == -1)
     {
@@ -358,7 +526,7 @@ void patch_regs(pid_t pid, struct user_regs_struct *old_registers, struct breakp
     }
 }
 
-long set_breakpoint(pid_t pid, long addr, struct breakpoint_t *file_symbols, long file_symbols_size)
+long set_breakpoint(const pid_t pid, const long addr, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     long ptrace_res = ptrace(PTRACE_PEEKTEXT, pid, (void *)addr, NULL);
     unsigned long long trap = 0;
@@ -401,7 +569,7 @@ void store_breakpoint(struct breakpoint_t *breakpoint_list, long breakpoint, lon
     }
 }
 
-void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *breakpoins_list, struct breakpoint_t *file_symbols, long file_symbols_size)
+void resume_execution(const pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *breakpoins_list, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     struct breakpoint_t tmp;
     short which = 0;
@@ -434,7 +602,7 @@ void resume_execution(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     patch_regs(pid, regs, file_symbols, file_symbols_size);
 }
 
-void display_breakpoints(struct breakpoint_t *breakpoint_list)
+void display_breakpoints(const struct breakpoint_t *breakpoint_list)
 {
     if (breakpoint_list[0].addr == 0 && breakpoint_list[0].breakpoint == 0)
     {
@@ -448,6 +616,139 @@ void display_breakpoints(struct breakpoint_t *breakpoint_list)
             break;
         printf("Breakpoint (\x1B[96m%d\x1B[0m) at \x1B[32m0x%lx\x1B[0m\n", i, breakpoint_list[i].addr);
     }
+}
+
+void set_command(const pid_t pid, char *buffer, const char **registers, unsigned long long *reg_cpy, struct user_regs_struct *regs, struct breakpoint_t *file_symbols, const long symtab_size)
+{
+    char *tokens = strtok(buffer, " ");
+    char *args[2];
+    char *dst, *src;
+    short dst_op = -1, src_op = -1;
+    long value = 0;
+
+    memset(args, 0, 2 * sizeof(char *));
+    sep_tokens(tokens, args);
+    tokens = strtok(args[1], "=");
+    sep_tokens(tokens, args);
+
+    dst = *args;
+    src = args[1];
+
+    if (*dst == '$')
+    {
+        if (*src != '$') // value
+        {
+            value = strtol(src, NULL, 16);
+            dst++;
+
+            for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
+            {
+                if (strncmp(registers[i], dst, 3) == 0)
+                {
+                    dst_op = i;
+                    break;
+                }
+            }
+
+            if (dst_op == -1)
+                puts("Invalid register or register not accepted by the debugger...");
+            else
+            {
+                printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => imm \x1B[32m 0x%lx\x1B[0m\n", registers[dst_op], reg_cpy[dst_op], value);
+                reg_cpy[dst_op] = value;
+            }
+        }
+        else if (*src == '$') // register
+        {
+            dst++;
+            src++;
+
+            for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
+            {
+                if (dst_op != -1 && src_op != -1)
+                    break;
+                if (strncmp(registers[i], dst, 3) == 0)
+                    dst_op = i;
+                if (strncmp(registers[i], src, 3) == 0)
+                    src_op = i;
+            }
+
+            if (dst_op == -1 || src_op == -1)
+                puts("Invalid register or register not accepted by the debugger...");
+            else
+            {
+                printf("[\x1B[01;93m%s\x1B[0m]> \x1B[31m0x%llx\x1B[0m => "
+                       "reg [\x1B[01;93m%s\x1B[0m]\x1B[32m 0x%llx\x1B[0m\n",
+                       registers[dst_op], reg_cpy[dst_op],
+                       registers[src_op], reg_cpy[src_op]);
+
+                reg_cpy[dst_op] = reg_cpy[src_op];
+            }
+        }
+    }
+    else
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man set");
+        return;
+    }
+
+    modify_regs(reg_cpy, regs);
+    patch_regs(pid, regs, file_symbols, symtab_size);
+}
+
+void bp_command(const pid_t pid, char *buffer, struct breakpoint_t *breakpoints, const short elf_type, const long base, struct breakpoint_t *file_symbols, const long symtab_size)
+{
+    char *tokens = strtok(buffer, " ");
+    char *args[2];
+    char *breakpoint;
+    long addr_bp = 0, bp = 0;
+    size_t bp_length = 0;
+
+    memset(args, 0, 2 * sizeof(char *));
+    sep_tokens(tokens, args);
+
+    breakpoint = args[1];
+
+    if (!breakpoint)
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man bp");
+        return;
+    }
+
+    if (*breakpoint == '*') // address
+    {
+        breakpoint++;
+        addr_bp = strtol(breakpoint, NULL, 16);
+        bp_length = strlen(breakpoint);
+
+        if (elf_type == 2 && bp_length < 4)
+            addr_bp += base;
+
+        printf("Breakpoint on \x1B[01;91m0x%lx\x1B[0m\n", addr_bp);
+    }
+    else if (*breakpoint != '*') // symbol
+    {
+        addr_bp = find_symbol_addr(file_symbols, symtab_size, breakpoint);
+
+        if (addr_bp == -1)
+        {
+            printf("[\x1B[01;93mWARNING\x1B[0m] Symbol %s not found...\n", breakpoint);
+            return;
+        }
+
+        if (elf_type == 2)
+            addr_bp += base;
+
+        printf("Breakpoint on \x1B[01;94m(%s)\x1B[0m => \x1B[01;91m0x%lx\x1B[0m\n", breakpoint, addr_bp);
+    }
+    else
+    {
+        puts("\x1B[01;93mHint\x1B[0m: man bp");
+        return;
+    }
+
+    bp = set_breakpoint(pid, addr_bp, file_symbols, symtab_size);
+    store_breakpoint(breakpoints, bp, addr_bp);
 }
 
 void copy_registers(unsigned long long *regs_cpy, struct user_regs_struct *original_regs)
@@ -569,7 +870,7 @@ void extract_gdb_words(uint32_t *gdb_words, long gdb_word, long gdb_word2)
     gdb_words[3] = (uint32_t)(gdb_word2 >> 32);
 }
 
-void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols, long file_symbols_size)
+void disassembly_view(const pid_t pid, struct user_regs_struct *regs, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     csh handle;
     cs_insn *insn;
@@ -612,7 +913,7 @@ void disassembly_view(pid_t pid, struct user_regs_struct *regs, struct breakpoin
     cs_close(&handle);
 }
 
-void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols, long file_symbols_size)
+void peek_bytes(const pid_t pid, long amount, long addr, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     int far_offset = (int)(amount / sizeof(long));
     long data = 0, count = 0;
@@ -621,7 +922,7 @@ void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
 
     for (int i = 0; i <= far_offset; ++i)
     {
-        data = ptrace(PTRACE_PEEKDATA, pid, regs_rt + (sizeof(long) * i), NULL);
+        data = ptrace(PTRACE_PEEKDATA, pid, addr + (sizeof(long) * i), NULL);
 
         if (data == -1)
         {
@@ -631,7 +932,7 @@ void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
         }
 
         extract_bytes(bytes, data);
-        printf("[\x1B[01;91m0x%lx\x1B[0m]> ", regs_rt + (sizeof(long) * i));
+        printf("[\x1B[01;91m0x%lx\x1B[0m]> ", addr + (sizeof(long) * i));
 
         for (short i = 0; i < OPCODES; ++i)
         {
@@ -654,7 +955,7 @@ void peek_bytes_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
     putc(0xa, stdout);
 }
 
-void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *file_symbols, long file_symbols_size)
+void peek_words(pid_t pid, long amount, long addr, struct breakpoint_t *file_symbols, const long file_symbols_size)
 {
     int far_offset = (int)(amount / sizeof(uint16_t)) + 1;
     long word = 0, word2 = 0, count = 0;
@@ -667,7 +968,7 @@ void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
 
     for (int i = 0; i < far_offset; i += 2)
     {
-        word = ptrace(PTRACE_PEEKDATA, pid, regs_rt + (sizeof(long) * i), NULL);
+        word = ptrace(PTRACE_PEEKDATA, pid, addr + (sizeof(long) * i), NULL);
 
         if (word == -1)
         {
@@ -676,7 +977,7 @@ void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
             exit(EXIT_FAILURE);
         }
 
-        word2 = ptrace(PTRACE_PEEKDATA, pid, regs_rt + (sizeof(long) * (i + 1)), NULL);
+        word2 = ptrace(PTRACE_PEEKDATA, pid, addr + (sizeof(long) * (i + 1)), NULL);
 
         if (word2 == -1)
         {
@@ -686,7 +987,7 @@ void peek_words_reg(pid_t pid, long amount, long regs_rt, struct breakpoint_t *f
         }
 
         extract_gdb_words(gdb_words, word, word2);
-        printf("[\x1B[01;91m0x%lx\x1B[0m]> ", regs_rt + (sizeof(long) * i));
+        printf("[\x1B[01;91m0x%lx\x1B[0m]> ", addr + (sizeof(long) * i));
 
         for (short i = 0; i < 4; ++i)
         {
