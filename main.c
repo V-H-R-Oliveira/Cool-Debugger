@@ -20,35 +20,19 @@ int main(int argc, char **argv)
     char buffer[COMMAND_SIZE] = {'\0'}, previous[COMMAND_SIZE] = {'\0'};
     unsigned long long reg_cpy[USER_REGS_STRUCT_NO] = {0};
     const char *registers[] = {
-        "r15",
-        "r14",
-        "r13",
-        "r12",
-        "rbp",
-        "rbx",
-        "r11",
-        "r10",
-        "r9",
-        "r8",
-        "rax",
-        "rcx",
-        "rdx",
-        "rsi",
-        "rdi",
-        "orig_rax",
-        "rip",
-        "cs",
-        "eflags",
-        "rsp",
-        "ss",
-        "fs_base",
-        "gs_base",
-        "ds",
-        "es",
-        "fs",
-        "gs",
+        "r15", "r14", "r13", "r12",
+        "rbp", "rbx", "r11", "r10",
+        "r9", "r8", "rax", "rcx",
+        "rdx", "rsi", "rdi", "orig_rax",
+        "rip", "cs", "eflags", "rsp",
+        "ss", "fs_base", "gs_base", "ds",
+        "es", "fs", "gs",
     };
-
+    const struct eflags_t flags[] = {
+        {"CARRY", 0x1}, {"PARITY", 0x4}, {"ADJUST", 0x10},
+        {"ZERO", 0x40}, {"SIGN", 0x80}, {"TRAP", 0x100},
+        {"INTERRUPT", 0x200}, {"DIRECTION", 0x400}, {"OVERFLOW", 0x800},
+    };
     const char *path = argv[1];
     long length = 0, symtab_size = 0, base = 0;
     char *content = map_file(path, &length);
@@ -68,6 +52,14 @@ int main(int argc, char **argv)
     }
 
     elf_headers = (Elf64_Ehdr *)content;
+
+    if (elf_headers->e_ident[EI_CLASS] != ELFCLASS64)
+    {
+        fprintf(stderr, "%s isn't supported...\nCurrent arch support: x86_64\n", path);
+        munmap_wrapper(content, length);
+        return 1;
+    }
+
     char **args = extract_cmdline_args(argc, argv);
 
     if (!args)
@@ -165,15 +157,14 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        format_print(&regs, &saved, registers);
+        format_print(&regs, &saved, registers, flags);
 
         if (WIFSTOPPED(status) && WSTOPSIG(status) == SIGTRAP)
             resume_execution(pid, &regs, breakpoints, file_symbols, symtab_size);
 
         copy_registers(reg_cpy, &regs);
         saved = regs;
-        disassembly_view(pid, &regs, file_symbols, symtab_size);
-        
+        disassembly_view(pid, &regs, file_symbols, symtab_size);        
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
 
@@ -252,13 +243,13 @@ int main(int argc, char **argv)
                     puts("info <bp/sym>");
                 else if (strncmp(info, "bp", 2) == 0) // breakpoints
                     puts("bp <symbol/*address>");
-                else if (strncmp(info, "set", 3) == 0) // set
+                else if (strncmp(info, "set", 3) == 0)
                     puts("set <$register>=<$register/value>");
-                else if (strncmp(info, "cmd", 3) == 0) // cmd
+                else if (strncmp(info, "cmd", 3) == 0)
                     puts("\x1B[96mDebugger commands:\x1B[0m\nc -> continue\ns -> single step\nq -> quit");
                 else if (strncmp(info, "inspect", 7) == 0)
                     puts("inspect <num(w/b)> <$register/*addr>");
-                else if (strncmp(info, "check", 5) == 0) // check
+                else if (strncmp(info, "check", 5) == 0)
                     puts("check <aslr>");
                 else
                     puts("\x1B[01;93mHint\x1B[0m: type man");

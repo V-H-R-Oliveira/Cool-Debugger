@@ -11,7 +11,7 @@ LIBNAME = capstone
 all: release
 release: $(OBJ) 
 	@echo "Compiling release version"
-	$(CC) $(CFLAGS) -s -o $(EXEC) $(OBJ) -l$(LIBNAME)
+	$(CC) $(CFLAGS) -static-pie -s -o $(EXEC) $(OBJ) -l$(LIBNAME)
 	@echo "Done"
 debug: $(OBJ)
 	@echo "Compiling debug version"

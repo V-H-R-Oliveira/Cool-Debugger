@@ -33,6 +33,7 @@
 #define PROCS_LENGTH 20
 #define CURRENT_PERSONA 0xffffffff
 #define OPCODES 8
+#define EFLAGS 9
 
 struct breakpoint_t
 {
@@ -40,6 +41,12 @@ struct breakpoint_t
     long addr;
     long breakpoint;
     long hit;
+};
+
+struct eflags_t 
+{
+    char *name;
+    uint16_t value;
 };
 
 // process child preparation
@@ -71,7 +78,7 @@ void modify_regs(unsigned long long *, struct user_regs_struct *);
 void sep_tokens(char *, char **);
 
 // display process registers and stack
-void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **);
+void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **, const struct eflags_t *);
 void disassembly_view(pid_t, struct user_regs_struct *, struct breakpoint_t *, long);
 
 // breakpoints stuff

@@ -33,10 +33,7 @@ bool disable_aslr(void)
     unsigned long pers_value = PER_LINUX | ADDR_NO_RANDOMIZE;
 
     if (personality(pers_value) < 0)
-    {
-        if (personality(pers_value) < 0)
-            return false;
-    }
+        return false;
     return true;
 }
 
@@ -90,53 +87,53 @@ char *username_from_uid(uid_t uid)
 
 void *map_file(const char *path, long *length)
 {
-    FILE *f = fopen(path, "rb");
+    FILE *handler = fopen(path, "rb");
     int fd = 0;
     void *content;
 
-    if (!f)
+    if (!handler)
     {
         perror("fopen error: ");
         exit(EXIT_FAILURE);
     }
 
-    fd = fileno(f);
+    fd = fileno(handler);
 
-    if (fseek(f, 0, SEEK_END) == -1)
+    if (fseek(handler, 0, SEEK_END) == -1)
     {
-        fclose_wrapper(f);
+        fclose_wrapper(handler);
         perror("fseek error: ");
         exit(EXIT_FAILURE);
     }
 
-    *length = ftell(f);
+    *length = ftell(handler);
 
     if (*length == -1)
     {
-        fclose_wrapper(f);
+        fclose_wrapper(handler);
         perror("ftell wrapper: ");
         exit(EXIT_FAILURE);
     }
 
     if (*length == 0)
     {
-        fclose_wrapper(f);
-        fprintf(stderr, "%s is empty or is a special file...\n", path);
+        fclose_wrapper(handler);
+        fprintf(stderr, "%s is empty, or is a special file...\n", path);
         exit(EXIT_FAILURE);
     }
 
-    rewind(f);
+    rewind(handler);
 
     content = mmap(NULL, *length, PROT_READ, MAP_PRIVATE, fd, 0);
 
     if (content == MAP_FAILED)
     {
-        fclose_wrapper(f);
+        fclose_wrapper(handler);
         perror("mmap error: ");
         exit(EXIT_FAILURE);
     }
 
-    fclose_wrapper(f);
+    fclose_wrapper(handler);
     return content;
 }
 
@@ -456,18 +453,18 @@ void display_breakpoints(struct breakpoint_t *breakpoint_list)
 void copy_registers(unsigned long long *regs_cpy, struct user_regs_struct *original_regs)
 {
     unsigned long long *ptr = &original_regs->r15; // first field of the struct
-    for (int i = 0; i < USER_REGS_STRUCT_NO; ++i)
+    for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
         regs_cpy[i] = *ptr++;
 }
 
 void modify_regs(unsigned long long *regs_cpy, struct user_regs_struct *new_regs)
 {
     unsigned long long *ptr = &new_regs->r15;
-    for (int i = 0; i < USER_REGS_STRUCT_NO; ++i)
+    for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
         *ptr++ = regs_cpy[i];
 }
 
-void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *saved, const char **registers)
+void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *saved, const char **registers, const struct eflags_t *flags)
 {
     puts("\n\x1B[01;93mRegisters:\x1B[0m");
     printf(
@@ -520,12 +517,27 @@ void format_print(struct user_regs_struct *new_regs, struct user_regs_struct *sa
         new_regs->r14, (uint32_t)new_regs->r14, (uint16_t)new_regs->r14, (uint8_t)new_regs->r14,
         new_regs->r15, (uint32_t)new_regs->r15, (uint16_t)new_regs->r15, (uint8_t)new_regs->r15);
 
+    printf("\n\x1B[01;93mEFLAGS:\x1B[0m");
+
+    for (short i = 0; i < EFLAGS; ++i)
+    {
+        if ((new_regs->eflags & flags[i].value) != 0)
+        {
+            printf(" \x1B[32m%s\x1B[0m ", flags[i].name);
+            continue;
+        }
+
+        printf(" \x1B[31m%s\x1B[0m ", flags[i].name);
+    }
+
+    putc(0xa, stdout);
+
     unsigned long long *ptr = &saved->r15;
     unsigned long long *ptr2 = &new_regs->r15;
 
     puts("\n\x1B[01;93mLast changes:\x1B[0m");
 
-    for (int i = 0; i < USER_REGS_STRUCT_NO; ++i)
+    for (short i = 0; i < USER_REGS_STRUCT_NO; ++i)
     {
         if (*ptr != *ptr2)
             printf("[\x1B[01;91m%s\x1B[0m] \x1B[31m0x%llx\x1B[0m => \x1B[32m0x%llx\x1B[0m\n", registers[i], *ptr, *ptr2);
