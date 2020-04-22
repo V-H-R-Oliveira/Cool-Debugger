@@ -239,14 +239,14 @@ struct breakpoint_t *extract_symbols(const Elf64_Ehdr *elf_headers, char *conten
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 1; i < elf_headers->e_shnum; ++i)
+    for (short i = 1; i < elf_headers->e_shnum; ++i)
     {
         if (section_headers[i].sh_type == SHT_SYMTAB)
         {
             printf("[+] Found a symbol table at 0x%lx\n[+] End at 0x%lx\n[+] Size: 0x%lx\n", section_headers[i].sh_offset, section_headers[i].sh_offset + section_headers[i].sh_size, section_headers[i].sh_size);
 
             strtab = &content[section_headers[section_headers[i].sh_link].sh_offset];
-            sym_tab = (Elf64_Sym *)(&content[section_headers[i].sh_offset]); // começo da secção
+            sym_tab = (Elf64_Sym *)(&content[section_headers[i].sh_offset]);
             *sym_size = (long)(section_headers[i].sh_size / sizeof(Elf64_Sym));
 
             if (posix_memalign((void **)&symbols, pagesize, *sym_size * sizeof(struct breakpoint_t)) != 0)
@@ -420,7 +420,7 @@ void check_feature(char *buffer, struct breakpoint_t *file_symbols, const long s
         puts("\x1B[01;93mHint\x1B[0m: man check");
 }
 
-void display_process_info(char *buffer, const struct breakpoint_t *breakpoints, const struct breakpoint_t *file_symbols, const long symtab_size)
+void display_process_info(char *buffer, const struct breakpoint_t *breakpoints, struct breakpoint_t *file_symbols, const long symtab_size)
 {
     char *tokens = strtok(buffer, " ");
     char *args[2];
@@ -911,6 +911,29 @@ void disassembly_view(const pid_t pid, struct user_regs_struct *regs, struct bre
         puts("\x1B[31mERROR\x1B[0m: Failed to disassemble given code!");
 
     cs_close(&handle);
+}
+
+void stack_view(const pid_t pid, const struct user_regs_struct *regs, struct breakpoint_t *file_symbols, const long symtab_size)
+{
+    long data = 0;
+
+    puts("\x1B[01;93mStack view:\x1B[0m\n");
+
+    for (short i = 0; i < 8; ++i)
+    {
+        data = ptrace(PTRACE_PEEKDATA, pid, regs->rsp + i * 8, NULL);
+
+        if (data == -1)
+        {
+            free_sym(file_symbols, symtab_size);
+            perror("ptrace PEEKDATA error: ");
+            exit(EXIT_FAILURE);
+        }
+
+        printf("[\x1B[96m0x%llx\x1B[0m]> \x1B[01;91m0x%lx\x1B[0m\n", regs->rsp + i * 8, data);
+    }
+
+    putc(0xa, stdout);
 }
 
 void peek_bytes(const pid_t pid, long amount, long addr, struct breakpoint_t *file_symbols, const long file_symbols_size)

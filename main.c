@@ -188,6 +188,7 @@ int main(int argc, char **argv)
         copy_registers(reg_cpy, &regs);
         saved = regs;
         disassembly_view(pid, &regs, file_symbols, symtab_size);
+        stack_view(pid, &regs, file_symbols, symtab_size);
 
     prompt_label:
         printf("[\x1B[96m0x%llx\x1B[0m]> ", regs.rip);
@@ -244,7 +245,7 @@ int main(int argc, char **argv)
             }
             default:
                 puts("\x1B[01;93mHint\x1B[0m: man cmd");
-                break;
+                goto prompt_label;
             }
         }
         else

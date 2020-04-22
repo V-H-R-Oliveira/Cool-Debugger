@@ -82,6 +82,7 @@ void sep_tokens(char *, char **);
 // display process registers and stack
 void format_print(struct user_regs_struct *, struct user_regs_struct *, const char **, const struct eflags_t *);
 void disassembly_view(const pid_t, struct user_regs_struct *, struct breakpoint_t *, const long);
+void stack_view(const pid_t, const struct user_regs_struct *, struct breakpoint_t *, const long);
 
 // breakpoints
 long set_breakpoint(const pid_t, const long, struct breakpoint_t *, const long);
@@ -92,7 +93,7 @@ void resume_execution(const pid_t, struct user_regs_struct *, struct breakpoint_
 void menu(void);
 void display_man(char *);
 void check_feature(char *, struct breakpoint_t *, const long);
-void display_process_info(char *, const struct breakpoint_t *, const struct breakpoint_t *, const long);
+void display_process_info(char *, const struct breakpoint_t *, struct breakpoint_t *, const long);
 void display_simbols(const struct breakpoint_t *, const long);
 void display_breakpoints(const struct breakpoint_t *);
 

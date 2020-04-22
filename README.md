@@ -9,6 +9,7 @@ Supported features:
 - Check ASLR;
 - Dissasembly view (integrated with Capstone);
 - Registers view;
+- Stack view;
 - Eflags view;
 - Inspect memory (addresses and registers);
 - Command-line args for the tracee;
